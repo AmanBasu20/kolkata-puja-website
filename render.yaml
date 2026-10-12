@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: kolkata-pujo-parikrama-web
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.7-flash
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: MCP_SERVER_URL
+        value: https://kolkata-puja-mcp-server2.onrender.com/mcp
+      - key: GUEST_LIMIT
+        value: 5
+

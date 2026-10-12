@@ -1,0 +1,22 @@
+﻿# Environment & Secrets (NEVER COMMIT)
+.env
+*.env
+*.key
+
+# SQLite databases & temp files
+*.db
+*.db-shm
+*.db-wal
+web_guest_quota.db*
+
+# Python cache & virtualenvs
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+venv/
+ENV/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
