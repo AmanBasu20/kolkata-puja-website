@@ -18,19 +18,206 @@ document.addEventListener('DOMContentLoaded', () => {
   const imageModalCaption = document.getElementById('image-modal-caption');
   const imageModalClose = document.getElementById('image-modal-close');
 
+  // Sidebar Elements
+  const sidebarDrawer = document.getElementById('sidebar-drawer');
+  const sidebarOverlay = document.getElementById('sidebar-overlay');
+  const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+  const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
+  const navNewChatBtn = document.getElementById('nav-new-chat-btn');
+  const sidebarNewChatBtn = document.getElementById('sidebar-new-chat-btn');
+  const chatHistoryList = document.getElementById('chat-history-list');
+  const langSelect = document.getElementById('lang-select');
+
   let conversationHistory = [];
   let remainingQuestions = 5;
   let guestRemainingQuestions = 5;
   let isGenerating = false;
-  let currentLang = 'en'; // 'en' or 'bn'
+  let currentLang = 'en'; // 'en', 'bn', or 'hi'
+
+  // Chat History & Session State (localStorage)
+  const SESSIONS_STORAGE_KEY = 'pujo_parikrama_sessions';
+  let chatSessions = [];
+  let currentSessionId = null;
+
+  function loadSessions() {
+    try {
+      const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
+      if (saved) {
+        chatSessions = JSON.parse(saved);
+        if (!Array.isArray(chatSessions)) chatSessions = [];
+      }
+    } catch (e) {
+      console.warn("Could not load chat sessions:", e);
+      chatSessions = [];
+    }
+  }
+
+  function saveSessions() {
+    try {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(chatSessions));
+    } catch (e) {
+      console.warn("Could not save chat sessions:", e);
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>'"]/g, 
+      tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag)
+    );
+  }
+
+  function renderChatHistory() {
+    if (!chatHistoryList) return;
+    chatHistoryList.innerHTML = '';
+
+    if (chatSessions.length === 0) {
+      const t = translations[currentLang] || translations.en;
+      const empty = document.createElement('div');
+      empty.className = 'chat-history-empty';
+      empty.textContent = t.emptyHistory || 'No saved chats yet. Ask a question to begin!';
+      chatHistoryList.appendChild(empty);
+      return;
+    }
+
+    chatSessions.forEach(session => {
+      const item = document.createElement('div');
+      item.className = `chat-history-item ${session.id === currentSessionId ? 'active' : ''}`;
+      
+      const main = document.createElement('div');
+      main.className = 'chat-item-main';
+      main.innerHTML = `<span class="chat-item-icon">💬</span><span class="chat-item-title">${escapeHtml(session.title || 'Conversation')}</span>`;
+      
+      const delBtn = document.createElement('button');
+      delBtn.className = 'chat-item-del-btn';
+      delBtn.innerHTML = '🗑️';
+      delBtn.title = 'Delete chat';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSession(session.id);
+      });
+
+      item.appendChild(main);
+      item.appendChild(delBtn);
+
+      item.addEventListener('click', () => {
+        openSession(session.id);
+      });
+
+      chatHistoryList.appendChild(item);
+    });
+  }
+
+  function openSession(sessionId) {
+    const session = chatSessions.find(s => s.id === sessionId);
+    if (!session) return;
+
+    currentSessionId = sessionId;
+    conversationHistory = (session.conversationHistory || []).slice();
+
+    // Clear messages and re-populate
+    messagesList.innerHTML = '';
+    (session.messages || []).forEach(msg => {
+      appendMessage(msg.role, msg.content, false);
+    });
+
+    // Switch view to chat
+    heroView.style.display = 'none';
+    chatView.style.display = 'flex';
+    navBrand.style.display = 'flex';
+
+    renderChatHistory();
+    closeSidebar();
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  }
+
+  function startNewChat() {
+    currentSessionId = null;
+    conversationHistory = [];
+    messagesList.innerHTML = '';
+
+    heroView.style.display = 'flex';
+    chatView.style.display = 'none';
+
+    renderChatHistory();
+    closeSidebar();
+    if (heroInput) {
+      heroInput.value = '';
+      heroInput.focus();
+    }
+  }
+
+  function deleteSession(sessionId) {
+    chatSessions = chatSessions.filter(s => s.id !== sessionId);
+    saveSessions();
+    if (currentSessionId === sessionId) {
+      startNewChat();
+    } else {
+      renderChatHistory();
+    }
+  }
+
+  function ensureCurrentSession(firstUserPrompt) {
+    if (!currentSessionId) {
+      const cleanTitle = firstUserPrompt.trim().replace(/^I am currently located at GPS coordinates.*?\.\s*/i, '');
+      const title = cleanTitle.length > 34 ? cleanTitle.substring(0, 34) + '...' : cleanTitle;
+      const newSession = {
+        id: 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        title: title || 'New Conversation',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+        conversationHistory: []
+      };
+      chatSessions.unshift(newSession);
+      currentSessionId = newSession.id;
+      saveSessions();
+      renderChatHistory();
+    }
+  }
+
+  function recordSessionMessage(role, content) {
+    if (!currentSessionId) return;
+    const session = chatSessions.find(s => s.id === currentSessionId);
+    if (session) {
+      if (!session.messages) session.messages = [];
+      session.messages.push({ role, content });
+      session.conversationHistory = conversationHistory.slice();
+      session.updatedAt = Date.now();
+      saveSessions();
+    }
+  }
+
+  // Sidebar Drawer Open/Close controls
+  function openSidebar() {
+    if (sidebarDrawer) sidebarDrawer.classList.add('open');
+    if (sidebarOverlay) sidebarOverlay.classList.add('active');
+  }
+
+  function closeSidebar() {
+    if (sidebarDrawer) sidebarDrawer.classList.remove('open');
+    if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+  }
+
+  if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', openSidebar);
+  if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeSidebar);
+  if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+  if (navNewChatBtn) navNewChatBtn.addEventListener('click', startNewChat);
+  if (sidebarNewChatBtn) sidebarNewChatBtn.addEventListener('click', startNewChat);
+  if (navBrand) navBrand.addEventListener('click', startNewChat);
 
   const translations = {
     en: {
-      toggleBtn: 'বাংলা',
-      assistantLabel: 'Assistant:',
+      assistantLabel: '🤖 Assistant:',
+      langLabel: '🌐 Language / ভাষা:',
       motif: '🌸 শুভ শারদীয়া 🌸',
       title: 'Kolkata Pujo Parikrama',
-      subtitle: 'Explore Durga Puja pandals, check traffic updates and area busyness, discover pandal themes and artists, and plan Metro journeys and routes.',
       placeholder: 'Ask about pandals, routes, Metro timings, or traffic...',
       chatPlaceholder: 'Ask a follow-up question...',
       presetsTitle: '✨ Recommended Puja Tour Presets',
@@ -39,18 +226,22 @@ document.addEventListener('DOMContentLoaded', () => {
       quotaChecking: 'Checking questions...',
       quotaFreeLeft: '{n} of {limit} free left',
       quotaUnlimited: 'Unlimited (Testing)',
+      quotaMyKey: 'Unlimited (My Key)',
       consulting: 'Consulting Kolkata Puja MCP server & tools...',
       connError: '⚠️ Connection error. Please check your network and try again.',
       shareWa: 'Share to WhatsApp',
       copyPlan: 'Copy Plan',
-      copied: 'Copied!'
+      copied: 'Copied!',
+      sidebarTitle: 'Conversations',
+      newChat: 'New Conversation',
+      recentChats: 'Recent Chats',
+      emptyHistory: 'No saved chats yet. Start asking questions above!'
     },
     bn: {
-      toggleBtn: 'English',
-      assistantLabel: 'সহকারী:',
+      assistantLabel: '🤖 সহকারী:',
+      langLabel: '🌐 ভাষা:',
       motif: '🌸 শুভ শারদীয়া 🌸',
       title: 'কলকাতা পুজো পরিক্রমা',
-      subtitle: 'দুর্গাপূজার মণ্ডপ খুঁজুন, ট্র্যাফিক এবং ভিড় জানুন, মণ্ডপের থিম ও শিল্পী আবিষ্কার করুন এবং মেট্রো ও হাঁটার রুট প্ল্যান করুন।',
       placeholder: 'মণ্ডপ, রুট, মেট্রো সময়সূচী বা ট্র্যাফিক সম্পর্কে জিজ্ঞাসা করুন...',
       chatPlaceholder: 'পরবর্তী প্রশ্নটি এখানে লিখুন...',
       presetsTitle: '✨ বিশেষ পুজো পরিক্রমা ট্যুর',
@@ -59,22 +250,53 @@ document.addEventListener('DOMContentLoaded', () => {
       quotaChecking: 'প্রশ্ন গণনা হচ্ছে...',
       quotaFreeLeft: '{limit} টির মধ্যে {n} টি বাকি',
       quotaUnlimited: 'সীমাহীন (টেস্টিং)',
+      quotaMyKey: 'সীমাহীন (আমার কি)',
       consulting: 'কলকাতা পুজো এমসিপি টুল থেকে তথ্য আনা হচ্ছে...',
       connError: '⚠️ সংযোগ সমস্যা। দয়া করে ইন্টারনেট চেক করে আবার চেষ্টা করুন।',
       shareWa: 'হোয়াটসঅ্যাপে পাঠান',
       copyPlan: 'প্ল্যান কপি করুন',
-      copied: 'কপি হয়েছে!'
+      copied: 'কপি হয়েছে!',
+      sidebarTitle: 'কথোপকথন',
+      newChat: 'নতুন চ্যাট',
+      recentChats: 'পূর্ববর্তী চ্যাটসমূহ',
+      emptyHistory: 'এখনও কোনো সেভ করা চ্যাট নেই। প্রশ্ন করে শুরু করুন!'
+    },
+    hi: {
+      assistantLabel: '🤖 सहायक:',
+      langLabel: '🌐 भाषा:',
+      motif: '🌸 शुभ शारदीय 🌸',
+      title: 'कोलकाता पूजा परिक्रमा',
+      placeholder: 'पंडाल, रूट, मेट्रो समय या ट्रैफिक के बारे में पूछें...',
+      chatPlaceholder: 'अगला प्रश्न यहाँ पूछें...',
+      presetsTitle: '✨ अनुशंसित पूजा यात्रा योजना',
+      nearMeTitle: 'मेरे पास के पंडाल',
+      nearMeDesc: 'जीपीएस से नजदीकी पंडाल खोजें',
+      quotaChecking: 'प्रश्न गिने जा रहे हैं...',
+      quotaFreeLeft: '{limit} में से {n} प्रश्न शेष',
+      quotaUnlimited: 'असीमित (परीक्षण)',
+      quotaMyKey: 'असीमित (मेरी की)',
+      consulting: 'कोलकाता पूजा डेटा से जानकारी खोजी जा रही है...',
+      connError: '⚠️ कनेक्शन त्रुटि। कृपया नेटवर्क जांचें और पुनः प्रयास करें।',
+      shareWa: 'व्हाट्सएप पर शेयर करें',
+      copyPlan: 'योजना कॉपी करें',
+      copied: 'कॉपी हो गया!',
+      sidebarTitle: 'बातचीत',
+      newChat: 'नई बातचीत',
+      recentChats: 'पिछली बातचीत',
+      emptyHistory: 'अभी तक कोई चैट नहीं है। ऊपर प्रश्न पूछकर शुरुआत करें!'
     }
   };
 
   function applyLanguage(lang) {
+    if (!translations[lang]) lang = 'en';
     currentLang = lang;
     const t = translations[lang];
-    const langBtnText = document.getElementById('lang-btn-text');
-    if (langBtnText) langBtnText.textContent = t.toggleBtn;
 
     const assistantLabel = document.getElementById('assistant-label');
     if (assistantLabel) assistantLabel.textContent = t.assistantLabel;
+
+    const langLabel = document.getElementById('lang-label');
+    if (langLabel) langLabel.textContent = t.langLabel;
 
     const heroTitle = document.querySelector('.hero-title');
     if (heroTitle) heroTitle.textContent = t.title;
@@ -96,15 +318,33 @@ document.addEventListener('DOMContentLoaded', () => {
       if (span) span.textContent = t.nearMeDesc;
     }
 
+    const sidebarTitleText = document.getElementById('sidebar-title-text');
+    if (sidebarTitleText) sidebarTitleText.textContent = t.sidebarTitle;
+
+    const sidebarNewChatText = document.getElementById('sidebar-new-chat-text');
+    if (sidebarNewChatText) sidebarNewChatText.textContent = t.newChat;
+
+    const navNewChatText = document.getElementById('nav-new-chat-text');
+    if (navNewChatText) navNewChatText.textContent = t.newChat;
+
+    const sidebarHistoryLabel = document.getElementById('sidebar-history-label');
+    if (sidebarHistoryLabel) sidebarHistoryLabel.textContent = t.recentChats;
+
+    if (langSelect && langSelect.value !== lang) {
+      langSelect.value = lang;
+    }
+
     updateModelSelectLabels();
     updateQuotaDisplay(remainingQuestions);
+    renderChatHistory();
   }
 
-  const langToggleBtn = document.getElementById('lang-toggle-btn');
-  if (langToggleBtn) {
-    langToggleBtn.addEventListener('click', () => {
-      const nextLang = currentLang === 'en' ? 'bn' : 'en';
-      applyLanguage(nextLang);
+  if (langSelect) {
+    langSelect.addEventListener('change', () => {
+      applyLanguage(langSelect.value);
+      try {
+        localStorage.setItem('pujo_selected_lang', langSelect.value);
+      } catch (e) {}
     });
   }
 
@@ -144,26 +384,35 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateModelSelectLabels() {
     if (!modelSelect) return;
     const isBn = currentLang === 'bn';
+    const isHi = currentLang === 'hi';
     const options = modelSelect.querySelectorAll('option');
     options.forEach(opt => {
       const val = opt.value;
       const isCustom = hasCustomKeyForProvider(val);
       if (val === 'gemini') {
-        opt.textContent = isCustom 
-          ? (isBn ? 'গুগল জেমিনি ⚡ (আমার কি)' : 'Google Gemini ⚡ (My Key)')
-          : (isBn ? 'গুগল জেমিনি (ফ্রি গেস্ট)' : 'Google Gemini (Free Guest)');
+        if (isCustom) {
+          opt.textContent = isBn ? 'গুগল জেমিনি ⚡ (আমার কি)' : (isHi ? 'गूगल जेमिनी ⚡ (मेरी की)' : 'Google Gemini ⚡ (My Key)');
+        } else {
+          opt.textContent = isBn ? 'গুগল জেমিনি (ফ্রি গেস্ট)' : (isHi ? 'गूगल जेमिनी (मुफ़्त अतिथि)' : 'Google Gemini (Free Guest)');
+        }
       } else if (val === 'groq') {
-        opt.textContent = isCustom 
-          ? (isBn ? 'গ্রক ⚡ (আমার কি)' : 'Groq ⚡ (My Key)')
-          : (isBn ? 'গ্রক (ফ্রি গেস্ট)' : 'Groq (Free Guest)');
+        if (isCustom) {
+          opt.textContent = isBn ? 'গ্রক ⚡ (আমার কি)' : (isHi ? 'ग्रॉक ⚡ (मेरी की)' : 'Groq ⚡ (My Key)');
+        } else {
+          opt.textContent = isBn ? 'গ্রক (ফ্রি গেস্ট)' : (isHi ? 'ग्रॉक (मुफ़्त अतिथि)' : 'Groq (Free Guest)');
+        }
       } else if (val === 'openai') {
-        opt.textContent = isCustom 
-          ? (isBn ? 'ওপেনএআই চ্যাটজিপিটি ⚡ (আমার কি)' : 'OpenAI ChatGPT ⚡ (My Key)')
-          : (isBn ? 'ওপেনএআই (চ্যাটজিপিটি)' : 'OpenAI (ChatGPT)');
+        if (isCustom) {
+          opt.textContent = isBn ? 'ওপেনএআই ⚡ (আমার কি)' : (isHi ? 'ओपनएआई ⚡ (मेरी की)' : 'OpenAI ChatGPT ⚡ (My Key)');
+        } else {
+          opt.textContent = isBn ? 'ওপেনএআই (চ্যাটজিপিটি)' : (isHi ? 'ओपनएआई (चैटजीपीटी)' : 'OpenAI (ChatGPT)');
+        }
       } else if (val === 'anthropic') {
-        opt.textContent = isCustom 
-          ? (isBn ? 'অ্যানথ্রপিক ক্লদ ⚡ (আমার কি)' : 'Anthropic Claude ⚡ (My Key)')
-          : (isBn ? 'অ্যানথ্রপিক (ক্লদ)' : 'Anthropic (Claude)');
+        if (isCustom) {
+          opt.textContent = isBn ? 'অ্যানথ্রপিক ক্লদ ⚡ (আমার কি)' : (isHi ? 'एंथ्रोपिक ⚡ (मेरी की)' : 'Anthropic Claude ⚡ (My Key)');
+        } else {
+          opt.textContent = isBn ? 'অ্যানথ্রপিক (ক্লদ)' : (isHi ? 'एंथ्रोपिक (क्लॉड)' : 'Anthropic (Claude)');
+        }
       }
     });
   }
@@ -187,12 +436,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof remaining === 'number' && remaining < 999) {
       guestRemainingQuestions = remaining;
     }
-    const t = translations[currentLang];
+    const t = translations[currentLang] || translations.en;
     const currentProvider = modelSelect.value;
     
     if (hasCustomKeyForProvider(currentProvider)) {
       remainingQuestions = 9999;
-      quotaText.textContent = "Unlimited (My Key)";
+      quotaText.textContent = t.quotaMyKey || "Unlimited (My Key)";
       quotaBadge.classList.remove('low', 'zero');
       return;
     }
@@ -399,8 +648,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Append User Message to UI
+    // Ensure session exists and record user message
+    ensureCurrentSession(text);
     appendMessage('user', text);
+    recordSessionMessage('user', text);
     conversationHistory.push({ role: 'user', content: backendMessage });
 
     // Show Loading Bubble
@@ -411,9 +662,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       provider = modelSelect.value;
-      const queryMessage = currentLang === 'bn' 
-        ? `${backendMessage} (দয়া করে বাংলায় উত্তর দিন)` 
-        : backendMessage;
+      let queryMessage = backendMessage;
+      if (currentLang === 'bn') {
+        queryMessage = `${backendMessage} (দয়া করে বাংলায় উত্তর দিন)`;
+      } else if (currentLang === 'hi') {
+        queryMessage = `${backendMessage} (कृपया हिंदी में उत्तर दें)`;
+      }
 
       const customKey = userKeys[provider] || null;
 
@@ -438,12 +692,15 @@ document.addEventListener('DOMContentLoaded', () => {
           showQuotaModal();
         }
         appendMessage('assistant', '⚠️ ' + (data.message || 'Free guest question limit reached.'));
+        recordSessionMessage('assistant', '⚠️ ' + (data.message || 'Free guest question limit reached.'));
         return;
       }
 
       if (!resp.ok) {
         updateQuotaDisplay(data.remaining !== undefined ? data.remaining : remainingQuestions);
-        appendMessage('assistant', `⚠️ ${data.message || 'Error occurred while contacting assistant.'}`);
+        const errMsg = `⚠️ ${data.message || 'Error occurred while contacting assistant.'}`;
+        appendMessage('assistant', errMsg);
+        recordSessionMessage('assistant', errMsg);
         return;
       }
 
@@ -451,13 +708,16 @@ document.addEventListener('DOMContentLoaded', () => {
       updateQuotaDisplay(data.remaining);
       appendMessage('assistant', data.reply);
       conversationHistory.push({ role: 'assistant', content: data.reply });
+      recordSessionMessage('assistant', data.reply);
 
       if (data.remaining === 0 && !isCustom) {
         setTimeout(showQuotaModal, 1500);
       }
     } catch (err) {
       removeLoadingBubble(loadingId);
-      appendMessage('assistant', '⚠️ Connection error. Please check your network and try again.');
+      const connErrMsg = '⚠️ Connection error. Please check your network and try again.';
+      appendMessage('assistant', connErrMsg);
+      recordSessionMessage('assistant', connErrMsg);
     } finally {
       isGenerating = false;
       heroSendBtn.disabled = false;
@@ -988,6 +1248,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (savedKeyProvider && !hasCustomKeyForProvider(modelSelect.value)) {
     modelSelect.value = savedKeyProvider;
   }
+
+  // Load saved sessions and language preference
+  loadSessions();
+  const savedLang = localStorage.getItem('pujo_selected_lang');
+  if (savedLang && ['en', 'bn', 'hi'].includes(savedLang)) {
+    applyLanguage(savedLang);
+  } else {
+    applyLanguage('en');
+  }
+  renderChatHistory();
 
   // Start session
   updateModelSelectLabels();

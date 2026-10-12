@@ -32,9 +32,28 @@ CORE_TOOLS = {
     "get_latest_pandal_update",
 }
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+def get_gemini_keys_pool() -> list[str]:
+    """Retrieves all configured Gemini keys from GEMINI_API_KEYS or GEMINI_API_KEY (supports comma/newline separated list)."""
+    raw = os.environ.get("GEMINI_API_KEYS", "") or os.environ.get("GEMINI_API_KEY", "")
+    if not raw:
+        return []
+    return [k.strip() for k in re.split(r"[,;\n\r]+", raw) if k.strip()]
+
+_gemini_key_rr_index = 0
+
+def get_next_pool_gemini_key() -> str:
+    """Round-robin retrieves next available Gemini key from pool."""
+    global _gemini_key_rr_index
+    keys = get_gemini_keys_pool()
+    if not keys:
+        return ""
+    key = keys[_gemini_key_rr_index % len(keys)]
+    _gemini_key_rr_index = (_gemini_key_rr_index + 1) % len(keys)
+    return key
+
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
@@ -141,14 +160,15 @@ async def call_gemini(
     model: str | None = None,
 ) -> str:
     if api_key:
-        key = api_key.strip()
+        candidate_keys = [api_key.strip()]
     else:
-        key = (GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")).strip()
-    if not key:
-        raise ValueError("Gemini API key is missing. Please provide your Gemini API key in Key Settings or configure GEMINI_API_KEY.")
+        keys_pool = get_gemini_keys_pool()
+        if not keys_pool:
+            raise ValueError("Gemini API key is missing. Please provide your Gemini API key in Key Settings or configure GEMINI_API_KEY / GEMINI_API_KEYS.")
+        start_key = get_next_pool_gemini_key()
+        candidate_keys = [start_key] + [k for k in keys_pool if k != start_key]
     
     selected_model = model or os.environ.get("GEMINI_MODEL") or GEMINI_MODEL
-    url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={key}"
 
     # 1. Fetch MCP tools & format as Gemini function declarations
     mcp_tools = await mcp_client.get_tools()
@@ -174,11 +194,15 @@ async def call_gemini(
     if function_declarations:
         tools_payload = [{"functionDeclarations": function_declarations}]
 
-    # 3. Multi-turn execution loop
+    # 3. Multi-turn execution loop with key pool failover
     max_rounds = 8
     rounds = 0
+    key_idx = 0
+    active_key = candidate_keys[key_idx]
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=20.0)) as client:
         while rounds < max_rounds:
+            url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={active_key}"
             body = {
                 "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
                 "contents": contents,
@@ -188,8 +212,8 @@ async def call_gemini(
             if tools_payload and rounds < 6:
                 body["tools"] = tools_payload
 
-            # Defensive retry loop with exponential backoff on 503 (high demand) and 429
-            max_retries = 3
+            # Defensive retry loop with key pool rotation, backoff, and model fallback
+            max_retries = 2
             resp = None
             current_url = url
             for attempt in range(max_retries + 1):
@@ -199,6 +223,17 @@ async def call_gemini(
                 
                 # Check for high demand or rate limit
                 if resp.status_code in (503, 429):
+                    # Failover to next pool key if available
+                    if resp.status_code == 429 and key_idx + 1 < len(candidate_keys):
+                        key_idx += 1
+                        active_key = candidate_keys[key_idx]
+                        logger.warning(
+                            "Gemini key rate limited (429). Rotating to key %d/%d from pool...",
+                            key_idx + 1, len(candidate_keys)
+                        )
+                        current_url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={active_key}"
+                        continue
+
                     if attempt < max_retries:
                         wait_sec = (attempt + 1) * 1.5
                         logger.warning(
@@ -213,11 +248,11 @@ async def call_gemini(
                             if alt_model in current_url:
                                 continue
                             logger.warning("Quota reached on %s. Attempting fallback to %s...", current_url, alt_model)
-                            fallback_url = f"{GEMINI_BASE_URL}/{alt_model}:generateContent?key={key}"
+                            fallback_url = f"{GEMINI_BASE_URL}/{alt_model}:generateContent?key={active_key}"
                             fallback_resp = await client.post(fallback_url, json=body)
                             if fallback_resp.status_code == 200:
                                 resp = fallback_resp
-                                url = fallback_url
+                                current_url = fallback_url
                                 break
                         if resp and resp.status_code == 200:
                             break

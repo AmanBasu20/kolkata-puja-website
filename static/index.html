@@ -17,38 +17,87 @@
 <body>
   <!-- Header Bar -->
   <header class="top-nav">
-    <div class="nav-brand" id="nav-brand">
-      <img src="/static/jantram_logo.png" alt="Jantram" class="nav-jantram-logo" width="22" height="22" style="width: 22px; height: 22px; max-width: 22px; max-height: 22px; object-fit: contain; vertical-align: middle;">
-      <span class="nav-brand-text">Kolkata Pujo Parikrama</span>
-    </div>
-    <div class="nav-actions">
-      <div class="lang-toggle-wrapper">
-        <button id="lang-toggle-btn" class="lang-toggle-btn" title="Switch Language / ভাষা পরিবর্তন করুন">
-          <span class="lang-icon">🌐</span>
-          <span id="lang-btn-text">বাংলা</span>
-        </button>
+    <div class="nav-left">
+      <button id="sidebar-toggle-btn" class="sidebar-toggle-btn" title="Open Menu & Chat History" aria-label="Toggle Menu">
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+      </button>
+      <div class="nav-brand" id="nav-brand">
+        <img src="/static/jantram_logo.png" alt="Jantram" class="nav-jantram-logo" width="22" height="22" style="width: 22px; height: 22px; max-width: 22px; max-height: 22px; object-fit: contain; vertical-align: middle;">
+        <span class="nav-brand-text">Kolkata Pujo Parikrama</span>
       </div>
-      <div class="provider-pill">
-        <label for="model-select" id="assistant-label">Assistant:</label>
-        <select id="model-select" class="model-dropdown">
+    </div>
+    <div class="nav-right">
+      <button id="nav-new-chat-btn" class="nav-new-chat-btn" title="Start a fresh conversation">
+        <span class="new-chat-icon">＋</span>
+        <span class="new-chat-text" id="nav-new-chat-text">New Chat</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Sidebar Overlay -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <!-- Collapsible Sidebar Drawer -->
+  <aside id="sidebar-drawer" class="sidebar-drawer" aria-label="Sidebar Navigation">
+    <div class="sidebar-header">
+      <div class="sidebar-title">
+        <span class="sidebar-title-icon">💬</span>
+        <span id="sidebar-title-text">Conversations</span>
+      </div>
+      <button id="sidebar-close-btn" class="sidebar-close-btn" aria-label="Close sidebar" title="Close">✕</button>
+    </div>
+
+    <div class="sidebar-new-chat-wrapper">
+      <button id="sidebar-new-chat-btn" class="sidebar-new-chat-btn">
+        <span class="new-chat-icon">＋</span>
+        <span id="sidebar-new-chat-text">New Conversation</span>
+      </button>
+    </div>
+
+    <div class="sidebar-history-container">
+      <div class="sidebar-section-label" id="sidebar-history-label">Recent Chats</div>
+      <div id="chat-history-list" class="chat-history-list">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+
+    <!-- Sidebar Settings Panel -->
+    <div class="sidebar-settings-panel">
+      <div class="sidebar-setting-row">
+        <label for="model-select" id="assistant-label">🤖 Assistant:</label>
+        <select id="model-select" class="sidebar-select">
           <option value="gemini" selected>Google Gemini (Free Guest)</option>
           <option value="groq">Groq (Free Guest)</option>
           <option value="openai">OpenAI (ChatGPT)</option>
           <option value="anthropic">Anthropic (Claude)</option>
         </select>
       </div>
-      <div class="key-btn-wrapper">
-        <button id="open-keys-btn" class="key-pill-btn" title="Add your own API Key (Unlimited questions)">
+
+      <div class="sidebar-setting-row">
+        <label for="lang-select" id="lang-label">🌐 Language / ভাষা:</label>
+        <select id="lang-select" class="sidebar-select">
+          <option value="en" selected>English</option>
+          <option value="bn">বাংলা (Bengali)</option>
+          <option value="hi">हिन्दी (Hindi)</option>
+        </select>
+      </div>
+
+      <div class="sidebar-setting-row">
+        <label id="sidebar-key-label">🔑 Personal Key:</label>
+        <button id="open-keys-btn" class="sidebar-action-btn key-pill-btn" title="Add your own API Key (Unlimited questions)">
           <span>🔑</span>
-          <span id="key-pill-text">API Keys</span>
+          <span id="key-pill-text">API Keys (Unlimited)</span>
         </button>
       </div>
-      <div id="quota-badge" class="quota-badge">
+
+      <div id="quota-badge" class="quota-badge sidebar-quota-badge">
         <span class="quota-icon">⚡</span>
         <span id="quota-text">Checking questions...</span>
       </div>
     </div>
-  </header>
+  </aside>
 
   <!-- Live Puja Status Ticker -->
   <div class="live-status-bar">
@@ -264,6 +313,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=2.1"></script>
+  <script src="/static/app.js?v=2.2"></script>
 </body>
 </html>
