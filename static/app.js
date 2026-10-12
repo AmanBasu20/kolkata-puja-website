@@ -82,9 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const navBrandText = document.querySelector('.nav-brand-text');
     if (navBrandText) navBrandText.textContent = t.title;
 
-    const heroSubtitle = document.querySelector('.hero-subtitle');
-    if (heroSubtitle) heroSubtitle.textContent = t.subtitle;
-
     if (heroInput) heroInput.placeholder = t.placeholder;
     if (chatInput) chatInput.placeholder = t.chatPlaceholder;
 
