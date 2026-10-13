@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Response, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -51,15 +50,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down web backend...")
 
 app = FastAPI(title="Kolkata Pujo Parikrama", lifespan=lifespan)
-
-# Allow CORS for Hugging Face Spaces iframes, Cloudflare Pages, and local development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Mount static folder
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
