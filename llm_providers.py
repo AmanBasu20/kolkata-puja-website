@@ -262,8 +262,8 @@ async def call_gemini(
     if function_declarations:
         tools_payload = [{"functionDeclarations": function_declarations}]
 
-    # 3. Multi-turn execution loop with key pool failover
-    max_rounds = 8
+    # 3. Multi-turn execution loop with key pool failover (capped at 4 rounds for fast responses)
+    max_rounds = 4
     rounds = 0
     key_idx = 0
     active_key = candidate_keys[key_idx]
@@ -276,8 +276,8 @@ async def call_gemini(
                 "contents": contents,
                 "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.4},
             }
-            # Provide tools up to round 6. In final round, omit tools to guarantee synthesis of final answer
-            if tools_payload and rounds < 6:
+            # Provide tools up to round 2. In subsequent rounds, omit tools to force immediate synthesis of final answer
+            if tools_payload and rounds < 2:
                 body["tools"] = tools_payload
 
             # Defensive retry loop with key pool rotation, backoff, and model fallback
@@ -355,28 +355,28 @@ async def call_gemini(
                 text_parts = [p.get("text", "") for p in parts if "text" in p and not p.get("thought", False)]
                 return "".join(text_parts).strip()
 
-            # Execute tool calls
+            # Execute tool calls concurrently with asyncio.gather to minimize latency
             rounds += 1
             contents.append({"role": "model", "parts": parts})
             
-            response_parts = []
-            for fc in function_calls:
-                fname = fc.get("name")
-                fargs = fc.get("args", {})
-                logger.info("Executing MCP tool via Gemini: %s(%s)", fname, fargs)
+            async def _run_fc(fc_item):
+                fn_name = fc_item.get("name")
+                fn_args = fc_item.get("args", {})
+                logger.info("Executing MCP tool via Gemini: %s(%s)", fn_name, fn_args)
                 try:
-                    result_text = await mcp_client.call_tool(fname, fargs)
+                    res_txt = await mcp_client.call_tool(fn_name, fn_args)
                 except Exception as e:
-                    logger.error("MCP tool %s error: %s", fname, e)
-                    result_text = f"Tool execution failed: {e}"
-                
-                response_parts.append({
+                    logger.error("MCP tool %s error: %s", fn_name, e)
+                    res_txt = f"Tool execution failed: {e}"
+                return {
                     "functionResponse": {
-                        "name": fname,
-                        "response": {"result": result_text}
+                        "name": fn_name,
+                        "response": {"result": res_txt}
                     }
-                })
-            contents.append({"role": "user", "parts": response_parts})
+                }
+
+            response_parts = await asyncio.gather(*[_run_fc(fc) for fc in function_calls])
+            contents.append({"role": "user", "parts": list(response_parts)})
 
         # Final synthesis fallback: if we looped through max rounds, ask model once more without tools to synthesize gathered data
         try:
