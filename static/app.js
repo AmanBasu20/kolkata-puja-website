@@ -13,6 +13,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const messagesList = document.getElementById('messages-list');
   const quotaModal = document.getElementById('quota-modal');
   const modalCloseBtn = document.getElementById('modal-close-btn');
+  const apiKeyModal = document.getElementById('api-key-modal');
+  const openKeysBtn = document.getElementById('open-keys-btn');
+  const closeKeysBtn = document.getElementById('close-keys-btn');
+  const saveKeysBtn = document.getElementById('save-keys-btn');
+  const clearKeysBtn = document.getElementById('clear-keys-btn');
+  const modalAddKeyBtn = document.getElementById('modal-add-key-btn');
+  const modalResetBtn = document.getElementById('modal-reset-btn');
+
+  const inputGeminiKey = document.getElementById('user-gemini-key');
+  const inputGroqKey = document.getElementById('user-groq-key');
+  const inputOpenaiKey = document.getElementById('user-openai-key');
+  const inputClaudeKey = document.getElementById('user-claude-key');
+
   const imageModal = document.getElementById('image-modal');
   const imageModalImg = document.getElementById('image-modal-img');
   const imageModalCaption = document.getElementById('image-modal-caption');
@@ -54,10 +67,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function saveSessions() {
     try {
+      if (chatSessions.length > 30) {
+        chatSessions = chatSessions.slice(0, 30);
+      }
       localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(chatSessions));
     } catch (e) {
       console.warn("Could not save chat sessions:", e);
     }
+  }
+
+  function formatSessionTitle(text) {
+    if (!text) return 'Puja Conversation';
+    let clean = text.trim()
+      .replace(/^I am currently located at GPS coordinates.*?\.\s*/i, '')
+      .replace(/\s+/g, ' ');
+    if (clean.length > 36) {
+      const trimmed = clean.substring(0, 36);
+      const lastSpace = trimmed.lastIndexOf(' ');
+      clean = (lastSpace > 18 ? trimmed.substring(0, lastSpace) : trimmed) + '...';
+    }
+    return clean || 'Puja Conversation';
   }
 
   function escapeHtml(str) {
@@ -114,6 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  let activePendingSessionId = null;
+
   function openSession(sessionId) {
     const session = chatSessions.find(s => s.id === sessionId);
     if (!session) return;
@@ -126,6 +157,11 @@ document.addEventListener('DOMContentLoaded', () => {
     (session.messages || []).forEach(msg => {
       appendMessage(msg.role, msg.content, false);
     });
+
+    // If this session is currently awaiting response, show loading indicator
+    if (activePendingSessionId === sessionId) {
+      appendLoadingBubble();
+    }
 
     // Switch view to chat
     heroView.style.display = 'none';
@@ -154,6 +190,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function deleteSession(sessionId) {
+    const confirmMsg = currentLang === 'bn'
+      ? 'আপনি কি এই চ্যাটটি মুছে ফেলতে চান?'
+      : (currentLang === 'hi'
+        ? 'क्या आप इस बातचीत को हटाना चाहते हैं?'
+        : 'Are you sure you want to delete this chat?');
+    if (!confirm(confirmMsg)) return;
+
     chatSessions = chatSessions.filter(s => s.id !== sessionId);
     saveSessions();
     if (currentSessionId === sessionId) {
@@ -165,11 +208,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function ensureCurrentSession(firstUserPrompt) {
     if (!currentSessionId) {
-      const cleanTitle = firstUserPrompt.trim().replace(/^I am currently located at GPS coordinates.*?\.\s*/i, '');
-      const title = cleanTitle.length > 34 ? cleanTitle.substring(0, 34) + '...' : cleanTitle;
+      const title = formatSessionTitle(firstUserPrompt);
       const newSession = {
         id: 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        title: title || 'New Conversation',
+        title: title,
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
@@ -180,15 +222,19 @@ document.addEventListener('DOMContentLoaded', () => {
       saveSessions();
       renderChatHistory();
     }
+    return currentSessionId;
   }
 
-  function recordSessionMessage(role, content) {
-    if (!currentSessionId) return;
-    const session = chatSessions.find(s => s.id === currentSessionId);
+  function recordSessionMessage(sessionId, role, content, historyTurn = null) {
+    if (!sessionId) return;
+    const session = chatSessions.find(s => s.id === sessionId);
     if (session) {
       if (!session.messages) session.messages = [];
       session.messages.push({ role, content });
-      session.conversationHistory = conversationHistory.slice();
+      if (historyTurn) {
+        if (!session.conversationHistory) session.conversationHistory = [];
+        session.conversationHistory.push(historyTurn);
+      }
       session.updatedAt = Date.now();
       saveSessions();
     }
@@ -212,17 +258,32 @@ document.addEventListener('DOMContentLoaded', () => {
   if (sidebarNewChatBtn) sidebarNewChatBtn.addEventListener('click', startNewChat);
   if (navBrand) navBrand.addEventListener('click', startNewChat);
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (quotaModal && quotaModal.style.display !== 'none') {
+        quotaModal.style.display = 'none';
+      }
+      if (apiKeyModal && apiKeyModal.style.display !== 'none') {
+        apiKeyModal.style.display = 'none';
+      }
+      if (imageModal && imageModal.style.display !== 'none') {
+        imageModal.style.display = 'none';
+      }
+      if (sidebarDrawer && sidebarDrawer.classList.contains('open')) {
+        closeSidebar();
+      }
+    }
+  });
+
   const translations = {
     en: {
       assistantLabel: '🤖 Assistant:',
       langLabel: '🌐 Language / ভাষা:',
-      motif: '🌸 শুভ শারদীয়া 🌸',
+      motifText: 'শুভ শারদীয়া',
       title: 'Kolkata Pujo Parikrama',
       placeholder: 'Ask about pandals, routes, Metro timings, or traffic...',
       chatPlaceholder: 'Ask a follow-up question...',
-      presetsTitle: '✨ Recommended Puja Tour Presets',
-      nearMeTitle: 'Pandals Near Me',
-      nearMeDesc: 'Auto-detect GPS & nearest pandals',
+      suggestionsLabel: 'Popular Puja Inquiries',
       quotaChecking: 'Checking questions...',
       quotaFreeLeft: '{n} of {limit} free left',
       quotaUnlimited: 'Unlimited (Testing)',
@@ -240,13 +301,11 @@ document.addEventListener('DOMContentLoaded', () => {
     bn: {
       assistantLabel: '🤖 সহকারী:',
       langLabel: '🌐 ভাষা:',
-      motif: '🌸 শুভ শারদীয়া 🌸',
+      motifText: 'শুভ শারদীয়া',
       title: 'কলকাতা পুজো পরিক্রমা',
       placeholder: 'মণ্ডপ, রুট, মেট্রো সময়সূচী বা ট্র্যাফিক সম্পর্কে জিজ্ঞাসা করুন...',
       chatPlaceholder: 'পরবর্তী প্রশ্নটি এখানে লিখুন...',
-      presetsTitle: '✨ বিশেষ পুজো পরিক্রমা ট্যুর',
-      nearMeTitle: 'আমার কাছের মণ্ডপ',
-      nearMeDesc: 'জিপিএস দিয়ে নিকটবর্তী মণ্ডপ খুঁজুন',
+      suggestionsLabel: 'জনপ্রিয় পুজো অনুসন্ধান',
       quotaChecking: 'প্রশ্ন গণনা হচ্ছে...',
       quotaFreeLeft: '{limit} টির মধ্যে {n} টি বাকি',
       quotaUnlimited: 'সীমাহীন (টেস্টিং)',
@@ -264,13 +323,11 @@ document.addEventListener('DOMContentLoaded', () => {
     hi: {
       assistantLabel: '🤖 सहायक:',
       langLabel: '🌐 भाषा:',
-      motif: '🌸 शुभ शारदीय 🌸',
+      motifText: 'शुभ शारदीय',
       title: 'कोलकाता पूजा परिक्रमा',
       placeholder: 'पंडाल, रूट, मेट्रो समय या ट्रैफिक के बारे में पूछें...',
       chatPlaceholder: 'अगला प्रश्न यहाँ पूछें...',
-      presetsTitle: '✨ अनुशंसित पूजा यात्रा योजना',
-      nearMeTitle: 'मेरे पास के पंडाल',
-      nearMeDesc: 'जीपीएस से नजदीकी पंडाल खोजें',
+      suggestionsLabel: 'लोकप्रिय पूजा प्रश्न',
       quotaChecking: 'प्रश्न गिने जा रहे हैं...',
       quotaFreeLeft: '{limit} में से {n} प्रश्न शेष',
       quotaUnlimited: 'असीमित (परीक्षण)',
@@ -287,10 +344,60 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // Dynamic Daily Puja Tithi / Greeting Helper (Asia/Kolkata timezone)
+  function getDailyPujaGreeting(lang = 'en') {
+    let month = 10;
+    let day = 13;
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        month: 'numeric',
+        day: 'numeric'
+      }).formatToParts(new Date());
+      month = parseInt(parts.find(p => p.type === 'month')?.value || '10', 10);
+      day = parseInt(parts.find(p => p.type === 'day')?.value || '13', 10);
+    } catch (e) {
+      const now = new Date();
+      month = now.getMonth() + 1;
+      day = now.getDate();
+    }
+
+    const tithiMap = {
+      '10-11': { motifBn: 'শুভ মহালয়া', motifHi: 'शुभ महालया', subEn: 'Shubho Mahalaya • শারদ শুভেচ্ছা', subBn: 'দেবীপক্ষের সূচনা • শারদ শুভেচ্ছা', subHi: 'शुभ महालया • शारदीय शुभकामनाएं', greetEn: 'Shubho Mahalaya!' },
+      '10-13': { motifBn: 'শুভ তৃতীয়া', motifHi: 'शुभ तृतीया', subEn: 'Shubho Tritiya • শারদ শুভেচ্ছা', subBn: 'শারদীয়া দুর্গাপুজোর শুভেচ্ছা', subHi: 'शुभ तृतीया • शारदीय शुभकामनाएं', greetEn: 'Shubho Tritiya!' },
+      '10-14': { motifBn: 'শুভ চতুর্থী', motifHi: 'शुभ चतुर्थी', subEn: 'Shubho Chaturthi • শারদ শুভেচ্ছা', subBn: 'শারদীয়া দুর্গাপুজোর শুভেচ্ছা', subHi: 'शुभ चतुर्थी • शारदीय शुभकामनाएं', greetEn: 'Shubho Chaturthi!' },
+      '10-15': { motifBn: 'শুভ পঞ্চমী', motifHi: 'शुभ पंचमी', subEn: 'Shubho Panchami • শারদ শুভেচ্ছা', subBn: 'মহা পঞ্চমীর প্রীতি ও শুভেচ্ছা', subHi: 'शुभ पंचमी • शारदीय शुभकामनाएं', greetEn: 'Shubho Panchami!' },
+      '10-16': { motifBn: 'শুভ ষষ্ঠী', motifHi: 'शुभ षष्ठी', subEn: 'Shubho Shasthi • দেবীর বোধন', subBn: 'মহা ষষ্ঠীর প্রীতি ও শুভেচ্ছা', subHi: 'शुभ षष्ठी • शारदीय शुभकामनाएं', greetEn: 'Shubho Shasthi!' },
+      '10-17': { motifBn: 'শুভ মহাসপ্তমী', motifHi: 'शुभ महासप्तमी', subEn: 'Shubho Maha Saptami • শারদ শুভেচ্ছা', subBn: 'মহাসপ্তমীর প্রীতি ও শুভেচ্ছা', subHi: 'शुभ महासप्तमी • शारदीय शुभकामनाएं', greetEn: 'Shubho Saptami!' },
+      '10-18': { motifBn: 'শুভ মহাষ্টমী', motifHi: 'शुभ महाअष्टमी', subEn: 'Shubho Maha Ashtami • অঞ্জলি ও সন্ধিপুজো', subBn: 'মহাষ্টমীর প্রীতি ও শুভেচ্ছা', subHi: 'शुभ महाअष्टमी • शारदीय शुभकामनाएं', greetEn: 'Shubho Ashtami!' },
+      '10-19': { motifBn: 'শুভ মহানবমী', motifHi: 'शुभ महानवमी', subEn: 'Shubho Maha Navami • শারদ শুভেচ্ছা', subBn: 'মহানবমীর প্রীতি ও শুভেচ্ছা', subHi: 'शुभ महानवमी • शारदीय शुभकामनाएं', greetEn: 'Shubho Navami!' },
+      '10-20': { motifBn: 'শুভ বিজয়া দশমী', motifHi: 'शुभ विजया दशमी', subEn: 'Shubho Bijoya Dashami • সিঁদুর খেলা', subBn: 'শুভ বিজয়ার প্রীতি ও শুভেচ্ছা', subHi: 'शुभ विजया दशमी • हार्दिक शुभकामनाएं', greetEn: 'Shubho Bijoya!' },
+      '10-21': { motifBn: 'শুভ বিজয়া', motifHi: 'शुभ विजया', subEn: 'Shubho Bijoya • প্রীতি ও শুভেচ্ছা', subBn: 'শুভ বিজয়ার আন্তরিক শুভেচ্ছা', subHi: 'शुभ विजया • हार्दिक शुभकामनाएं', greetEn: 'Shubho Bijoya!' },
+      '10-22': { motifBn: 'শুভ বিজয়া', motifHi: 'शुभ विजয়া', subEn: 'Shubho Bijoya • প্রীতি ও শুভেচ্ছা', subBn: 'শুভ বিজয়ার আন্তরিক শুভেচ্ছা', subHi: 'शुभ विजया • हार्दिक शुभकामनाएं', greetEn: 'Shubho Bijoya!' }
+    };
+
+    const key = `${month}-${day}`;
+    const entry = tithiMap[key] || {
+      motifBn: 'শুভ শারদীয়া',
+      motifHi: 'शुभ शारदीय',
+      subEn: 'Shubho Sharodiya • শারদ শুভেচ্ছা',
+      subBn: 'শারদীয়া দুর্গাপুজোর শুভেচ্ছা',
+      subHi: 'शारदीय दुर्गा पूजा की शुभकामनाएं',
+      greetEn: 'Shubho Sharodiya!'
+    };
+
+    return {
+      motif: lang === 'hi' ? entry.motifHi : entry.motifBn,
+      subtitle: lang === 'bn' ? entry.subBn : (lang === 'hi' ? entry.subHi : entry.subEn),
+      greetPrefix: lang === 'bn' ? `${entry.motifBn}! ` : (lang === 'hi' ? `${entry.motifHi}! ` : `🌸 ${entry.greetEn} `)
+    };
+  }
+
   function applyLanguage(lang) {
     if (!translations[lang]) lang = 'en';
     currentLang = lang;
     const t = translations[lang];
+    const dailyGreeting = getDailyPujaGreeting(lang);
 
     const assistantLabel = document.getElementById('assistant-label');
     if (assistantLabel) assistantLabel.textContent = t.assistantLabel;
@@ -298,25 +405,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const langLabel = document.getElementById('lang-label');
     if (langLabel) langLabel.textContent = t.langLabel;
 
+    const heroMotifText = document.getElementById('hero-motif-text');
+    if (heroMotifText) heroMotifText.textContent = dailyGreeting.motif;
+
+    const heroTithiSub = document.getElementById('hero-tithi-sub');
+    if (heroTithiSub) heroTithiSub.textContent = dailyGreeting.subtitle;
+
     const heroTitle = document.querySelector('.hero-title');
     if (heroTitle) heroTitle.textContent = t.title;
 
     const navBrandText = document.querySelector('.nav-brand-text');
     if (navBrandText) navBrandText.textContent = t.title;
 
-    if (heroInput) heroInput.placeholder = t.placeholder;
-    if (chatInput) chatInput.placeholder = t.chatPlaceholder;
+    if (heroInput) heroInput.placeholder = `${dailyGreeting.greetPrefix}${t.placeholder}`;
+    if (chatInput) chatInput.placeholder = `${dailyGreeting.greetPrefix}${t.chatPlaceholder}`;
 
-    const presetsTitle = document.querySelector('.presets-title');
-    if (presetsTitle) presetsTitle.textContent = t.presetsTitle;
-
-    const nearMeCard = document.getElementById('preset-near-me');
-    if (nearMeCard) {
-      const strong = nearMeCard.querySelector('strong');
-      const span = nearMeCard.querySelector('span');
-      if (strong) strong.textContent = t.nearMeTitle;
-      if (span) span.textContent = t.nearMeDesc;
-    }
+    const suggestionsLabel = document.getElementById('suggestions-label');
+    if (suggestionsLabel) suggestionsLabel.textContent = t.suggestionsLabel;
 
     const sidebarTitleText = document.getElementById('sidebar-title-text');
     if (sidebarTitleText) sidebarTitleText.textContent = t.sidebarTitle;
@@ -337,6 +442,138 @@ document.addEventListener('DOMContentLoaded', () => {
     updateModelSelectLabels();
     updateQuotaDisplay(remainingQuestions);
     renderChatHistory();
+    if (typeof renderRotatingSuggestions === 'function') {
+      renderRotatingSuggestions();
+    }
+  }
+
+  // Subtle Traditional Festive Dhak & Kansor Sound Generator (Web Audio API - 0 KB network cost)
+  const dhakAudioBtn = document.getElementById('dhak-audio-btn');
+  const dhakAudioIcon = document.getElementById('dhak-audio-icon');
+  const dhakAudioLabel = document.getElementById('dhak-audio-label');
+  let dhakAudioCtx = null;
+  let dhakIntervalId = null;
+  let isDhakPlaying = false;
+  let dhakStep = 0;
+
+  function playDhakStroke(ctx, type, timeOffset = 0) {
+    const now = ctx.currentTime + timeOffset;
+    if (type === 'dha' || type === 'dhin') {
+      // Deep warm leather membrane resonance (Dhak bass + mid wooden shell)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(type === 'dha' ? 240 : 310, now);
+
+      osc.type = 'triangle';
+      const startFreq = type === 'dha' ? 135 : 165;
+      const endFreq = type === 'dha' ? 58 : 74;
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.14);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(type === 'dha' ? 0.11 : 0.085, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.32);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.34);
+    } else if (type === 'tak') {
+      // Crisp wooden rim / high stick tap (Kathi stroke)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(420, now);
+      osc.frequency.exponentialRampToValueAtTime(190, now + 0.055);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.045, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.075);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } else if (type === 'kansor') {
+      // Soft traditional bronze Kansor bell harmonic shimmer
+      [880, 1318.5].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+
+        gain.gain.setValueAtTime(0.0005, now);
+        gain.gain.linearRampToValueAtTime(idx === 0 ? 0.016 : 0.008, now + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0004, now + 0.28);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.3);
+      });
+    }
+  }
+
+  // Traditional 8-step Sharodiya Dhak Badya Tala pattern
+  const DHAK_PATTERN = [
+    ['dha', 'kansor'], // Beat 1: Dha + Kansor
+    ['tak'],           // Beat 1.5: Tak
+    ['dhin'],          // Beat 2: Dhin
+    ['dhin', 'kansor'],// Beat 2.5: Dhin + Kansor
+    ['dha'],           // Beat 3: Dha
+    [],                // Beat 3.5: Breath
+    ['tak', 'kansor'], // Beat 4: Tak + Kansor
+    ['dhin']           // Beat 4.5: Dhin
+  ];
+
+  function toggleDhakAudio() {
+    if (isDhakPlaying) {
+      if (dhakIntervalId) {
+        clearInterval(dhakIntervalId);
+        dhakIntervalId = null;
+      }
+      isDhakPlaying = false;
+      if (dhakAudioBtn) dhakAudioBtn.classList.remove('playing');
+      if (dhakAudioIcon) dhakAudioIcon.textContent = '🔇';
+      if (dhakAudioLabel) dhakAudioLabel.textContent = 'Dhak';
+      return;
+    }
+
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!dhakAudioCtx) {
+        dhakAudioCtx = new AudioCtx();
+      }
+      if (dhakAudioCtx.state === 'suspended') {
+        dhakAudioCtx.resume();
+      }
+
+      isDhakPlaying = true;
+      dhakStep = 0;
+      if (dhakAudioBtn) dhakAudioBtn.classList.add('playing');
+      if (dhakAudioIcon) dhakAudioIcon.textContent = '🥁';
+      if (dhakAudioLabel) dhakAudioLabel.textContent = 'Dhak 🔊';
+
+      // Trigger first beat immediately
+      DHAK_PATTERN[0].forEach(stroke => playDhakStroke(dhakAudioCtx, stroke));
+      dhakStep = 1;
+
+      dhakIntervalId = setInterval(() => {
+        if (!isDhakPlaying || !dhakAudioCtx) return;
+        const strokes = DHAK_PATTERN[dhakStep % DHAK_PATTERN.length];
+        strokes.forEach(stroke => playDhakStroke(dhakAudioCtx, stroke));
+        dhakStep = (dhakStep + 1) % DHAK_PATTERN.length;
+      }, 240);
+    } catch (e) {
+      console.warn('Web Audio API unavailable:', e);
+    }
+  }
+
+  if (dhakAudioBtn) {
+    dhakAudioBtn.addEventListener('click', toggleDhakAudio);
   }
 
   if (langSelect) {
@@ -481,16 +718,92 @@ document.addEventListener('DOMContentLoaded', () => {
   heroSendBtn.addEventListener('click', sendMessage);
   chatSendBtn.addEventListener('click', sendMessage);
 
-  // Suggestion Chips & Tour Presets
-  document.querySelectorAll('.chip, .preset-card[data-prompt]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const prompt = btn.getAttribute('data-prompt');
-      if (prompt) {
-        heroInput.value = prompt;
-        sendMessage();
-      }
+  // Rotating Question Suggestions Pool (English, Bengali, Hindi)
+  const SUGGESTION_POOLS = {
+    en: [
+      { icon: '🚶', title: 'North Heritage Walk', desc: 'Baghbazar → Kumartuli → Sovabazar walking route', prompt: 'Plan a traditional heritage walking Puja route in North Kolkata around Baghbazar and Sovabazar with Metro and food stops' },
+      { icon: '🚇', title: 'South Metro Hopper', desc: 'Kalighat → Chetla → Suruchi Sangha route', prompt: 'Plan a 5-pandal Metro tour in South Kolkata starting from Kalighat Metro with timings' },
+      { icon: '🌙', title: 'Salt Lake & East Themes', desc: 'FD Block, BJ Block & Sreebhumi guide', prompt: 'Which pandals in Salt Lake and East Kolkata have low crowd and big themes right now?' },
+      { icon: '📍', title: 'Pandals Near Me', desc: 'Closest pandals based on my current GPS', prompt: 'near me' },
+      { icon: '🚦', title: 'Live Traffic & Roads', desc: 'EM Bypass, Central Ave & Rashbehari status', prompt: 'What is the current traffic update on EM Bypass, Rashbehari Avenue, and Central Avenue?' },
+      { icon: '⏱️', title: 'Night Metro Schedule', desc: 'All-night Blue & Green Line special trains', prompt: 'What are the all-night Kolkata Metro timings and service hours for Durga Puja?' },
+      { icon: '🌦️', title: 'Weather & What to Wear', desc: 'Sharodiya rain alerts & attire tips', prompt: 'What is the weather advisory for Kolkata pandal-hopping today, and should I carry an umbrella?' },
+      { icon: '🎨', title: 'Top Contemporary Themes', desc: 'Tala Prattoy, Suruchi & Chetla Agrani', prompt: 'Which Kolkata Durga Puja pandals have the most acclaimed artistic themes and lighting installations this year?' }
+    ],
+    bn: [
+      { icon: '🚶', title: 'উত্তর কলকাতার সাবেকি পরিক্রমা', desc: 'বাগবাজার → কুমারটুলি → শোভাবাজার হাঁটার পথ', prompt: 'উত্তর কলকাতার বাগবাজার, কুমারটুলি এবং শোভাবাজারের সাবেকি পুজোর হাঁটার রুট প্ল্যান করুন' },
+      { icon: '🚇', title: 'দক্ষিণ কলকাতা মেট্রো ট্যুর', desc: 'কালীঘাট → চেতলা → সুরুচি সংঘ মেট্রো রুট', prompt: 'কালীঘাট মেট্রো থেকে শুরু করে দক্ষিণ কলকাতার ৫টি সেরা পুজোর মেট্রো পরিক্রমা তৈরি করুন' },
+      { icon: '🌙', title: 'সল্টলেক ও শ্রীভূমি থিম', desc: 'এফডি ব্লক, বিজে ব্লক ও শ্রীভূমি স্পোর্টিং', prompt: 'সল্টলেক ও শ্রীভূমি এলাকায় কম ভিড় এবং সেরা থিমযুক্ত পুজোগুলি কোনগুলি?' },
+      { icon: '📍', title: 'আমার কাছের মণ্ডপ', desc: 'জিপিএস অনুযায়ী নিকটবর্তী পুজো', prompt: 'কাছের পুজো' },
+      { icon: '⏱️', title: 'সারারাত মেট্রো সময়সূচী', desc: 'ব্লু ও গ্রিন লাইনের বিশেষ পুজো ট্রেন', prompt: 'দুর্গাপুজোর দিনগুলিতে কলকাতার সারারাত মেট্রো পরিষেবার সময়সূচী কী?' },
+      { icon: '🌦️', title: 'আবহাওয়া ও পোশাকের টিপস', desc: 'বৃষ্টির সম্ভাবনা ও ছাতা নেওয়ার পরামর্শ', prompt: 'আজ কলকাতায় পুজো দেখার সময় আবহাওয়া কেমন থাকবে? ছাতা বা হালকা পোশাক পরা কি দরকার?' }
+    ],
+    hi: [
+      { icon: '🚶', title: 'उत्तर कोलकाता हेरिटेज वॉक', desc: 'बागबाजार → कुमारटुली → शोभाबाजार पैदल मार्ग', prompt: 'उत्तर कोलकाता के बागबाजार और शोभाबाजार की पारंपरिक पूजा का पैदल रूट प्लान करें' },
+      { icon: '🚇', title: 'दक्षिण कोलकाता मेट्रो टूर', desc: 'कालीघाट → चेतला → सुरुचि संघ मेट्रो मार्ग', prompt: 'कालीघाट मेट्रो से शुरू करके दक्षिण कोलकाता के 5 प्रसिद्ध पंडालों का मेट्रो टूर बताएं' },
+      { icon: '🌙', title: 'साल्ट लेक और थीम पंडाल', desc: 'एफडी ब्लॉक, बीजे ब्लॉक और श्रीभूमि', prompt: 'साल्ट लेक और ईस्ट कोलकाता में कम भीड़ वाले प्रसिद्ध थीम पंडाल कौन से हैं?' },
+      { icon: '📍', title: 'मेरे पास के पंडाल', desc: 'जीपीएस के आधार पर नजदीकी पूजा', prompt: 'मेरे पास के पंडाल' },
+      { icon: '⏱️', title: 'रात की मेट्रो समय सारिणी', desc: 'ब्लू और ग्रीन लाइन विशेष ट्रेन सेवा', prompt: 'दुर्गा पूजा के दौरान कोलकाता मेट्रो की रात भर चलने वाली ट्रेनों का समय क्या है?' },
+      { icon: '🌦️', title: 'मौसम और पहनावे की सलाह', desc: 'बारिश की चेतावनी और छाते की जरूरत', prompt: 'आज कोलकाता में पूजा घूमने के लिए मौसम कैसा रहेगा और क्या छाता ले जाना चाहिए?' }
+    ]
+  };
+
+  let currentSuggestionIndex = 0;
+  const rotatingSuggestionsEl = document.getElementById('rotating-suggestions');
+  const refreshSuggestionsBtn = document.getElementById('refresh-suggestions-btn');
+
+  function renderRotatingSuggestions() {
+    if (!rotatingSuggestionsEl) return;
+    const pool = SUGGESTION_POOLS[currentLang] || SUGGESTION_POOLS.en;
+    rotatingSuggestionsEl.innerHTML = '';
+
+    // Pick 4 suggestions starting from currentSuggestionIndex
+    for (let i = 0; i < 4; i++) {
+      const item = pool[(currentSuggestionIndex + i) % pool.length];
+      const card = document.createElement('button');
+      card.className = 'suggestion-card';
+      card.setAttribute('type', 'button');
+      card.innerHTML = `
+        <span class="suggestion-icon">${item.icon}</span>
+        <div class="suggestion-info">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.desc)}</span>
+        </div>
+      `;
+
+      card.addEventListener('click', () => {
+        if (item.prompt === 'near me' || item.prompt === 'কাছের পুজো' || item.prompt === 'मेरे पास के पंडाल') {
+          requestUserLocation();
+        } else {
+          const inputEl = heroView.style.display !== 'none' ? heroInput : chatInput;
+          inputEl.value = item.prompt;
+          sendMessage(); // Automatically submit upon click!
+        }
+      });
+
+      rotatingSuggestionsEl.appendChild(card);
+    }
+  }
+
+  function rotateSuggestions() {
+    const pool = SUGGESTION_POOLS[currentLang] || SUGGESTION_POOLS.en;
+    currentSuggestionIndex = (currentSuggestionIndex + 2) % pool.length;
+    renderRotatingSuggestions();
+  }
+
+  if (refreshSuggestionsBtn) {
+    refreshSuggestionsBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      rotateSuggestions();
     });
-  });
+  }
+
+  // Auto-rotate suggestions every 12 seconds if user is idle on hero view
+  setInterval(() => {
+    if (heroView && heroView.style.display !== 'none') {
+      rotateSuggestions();
+    }
+  }, 12000);
 
   // User GPS coordinates cache
   let userGps = null;
@@ -572,6 +885,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
+  // Helper: Haversine distance in km between two lat/lon points
+  function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // Get closest pandals from registered 222 dataset
+  function getClosestPandals(lat, lon, count = 5) {
+    if (!allKolkataPandals || allKolkataPandals.length === 0) return [];
+    const userLat = parseFloat(lat);
+    const userLon = parseFloat(lon);
+    if (isNaN(userLat) || isNaN(userLon)) return [];
+
+    return allKolkataPandals
+      .map(p => ({
+        ...p,
+        distKm: calculateDistanceKm(userLat, userLon, p.lat, p.lon)
+      }))
+      .sort((a, b) => a.distKm - b.distKm)
+      .slice(0, count);
+  }
+
   // Send message flow
   async function sendMessage() {
     if (isGenerating) return;
@@ -616,8 +958,10 @@ document.addEventListener('DOMContentLoaded', () => {
     autoResize(inputEl);
     inputEl.focus();
 
-    // Check if user is asking for pandals near them
-    const isNearbyQuery = /\b(near\s*me|nearby|closest|around\s*me|কাছে|কাছের)\b/i.test(text) && !/\b\d{2}\.\d+,\s*\d{2}\.\d+\b/.test(text);
+    // Check if user is explicitly asking for pandals near their own live GPS location ("near me", "around me", or clicked 📍)
+    // Do NOT trigger device GPS override when user says "nearby pandals along VIP Road" or "closest to Dum Dum Park"
+    const hasSpecificPlace = /\b(dum\s*dum|vip\s*road|baghbazar|sovabazar|shobhabazar|kumartuli|kalighat|chetla|suruchi|sreebhumi|salt\s*lake|tala|maddox|deshapriya|tridhara|ballygunge|gariahat|behala|college\s*square|santosh\s*mitra|ekdalia|mudiali|shib\s*mandir|shyambazar|girish\s*park|ultadanga|lake\s*town|simla|these\s*pandals|same\s*pandals)\b/i.test(text);
+    const isNearbyQuery = (!hasSpecificPlace && /\b(near\s+me|around\s+me|closest\s+to\s+me|near\s+my\s+location|আমার\s*কাছে|আমার\s*কাছের|কাছের\s*পুজো|मेरे\s*पास)\b/i.test(text)) || /^near\s*me$/i.test(text.trim()) || /\bGPS coordinates\b/i.test(text);
     let backendMessage = text;
 
     if (isNearbyQuery) {
@@ -640,22 +984,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      // 2. Automatically augment query with GPS coordinates
-      if (userGps) {
-        backendMessage = `I am currently located at GPS coordinates (${userGps.lat}, ${userGps.lon}). ${text}`;
+      // Check if text already has GPS coordinates or use cached userGps
+      let detectedLat = userGps ? userGps.lat : null;
+      let detectedLon = userGps ? userGps.lon : null;
+      const coordMatch = text.match(/\b([0-9]{2}\.[0-9]{3,6})\b[,\s]+([0-9]{2}\.[0-9]{3,6})\b/);
+      if (coordMatch) {
+        detectedLat = coordMatch[1];
+        detectedLon = coordMatch[2];
+      }
+
+      if (detectedLat && detectedLon) {
+        const closest = getClosestPandals(detectedLat, detectedLon, 4);
+        if (closest.length > 0) {
+          const listStr = closest.map(p => `- ${p.name} (${p.distKm.toFixed(1)} km away, Area: ${p.area || p.zone}, Zone: ${p.zone})`).join('\n');
+          backendMessage = `User request: "${text}"\nI am currently located at GPS coordinates (${detectedLat}, ${detectedLon}).\nBased on distance calculations, the closest registered Kolkata Durga Puja pandals to my location are:\n${listStr}\n\nPlease provide a complete guide for these closest accessible pandals including their nearest Kolkata Metro station, theme & heritage, and crowd/best time to visit. Do NOT use markdown tables; use card headings with bullets.`;
+        } else {
+          backendMessage = `I am currently located at GPS coordinates (${detectedLat}, ${detectedLon}). ${text}`;
+        }
       } else {
         backendMessage = `${text} (Note: Device location is unavailable. Please recommend the most famous Durga Puja pandals across South and North Kolkata)`;
       }
     }
 
-    // Ensure session exists and record user message
-    ensureCurrentSession(text);
-    appendMessage('user', text);
-    recordSessionMessage('user', text);
-    conversationHistory.push({ role: 'user', content: backendMessage });
+    // Lock target session ID for this request
+    const targetSessionId = ensureCurrentSession(text);
+    activePendingSessionId = targetSessionId;
 
-    // Show Loading Bubble
-    const loadingId = appendLoadingBubble();
+    // Record user turn to targetSession in storage
+    recordSessionMessage(targetSessionId, 'user', text, { role: 'user', content: backendMessage });
+
+    // Only render to UI if user is currently viewing targetSessionId
+    if (currentSessionId === targetSessionId) {
+      appendMessage('user', text);
+      conversationHistory.push({ role: 'user', content: backendMessage });
+    }
+
+    // Get conversation history turns specifically for this target session
+    const targetSession = chatSessions.find(s => s.id === targetSessionId);
+    const sessionHistoryToSend = targetSession ? (targetSession.conversationHistory || []).slice(-6) : [];
+
+    // Show Loading Bubble only if user is currently looking at targetSessionId
+    let loadingId = null;
+    if (currentSessionId === targetSessionId) {
+      loadingId = appendLoadingBubble();
+    }
+
     isGenerating = true;
     heroSendBtn.disabled = true;
     chatSendBtn.disabled = true;
@@ -677,12 +1050,14 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           message: queryMessage,
           provider: provider,
-          history: conversationHistory.slice(-6), // Send recent turns
+          history: sessionHistoryToSend,
           custom_api_key: customKey
         })
       });
 
-      removeLoadingBubble(loadingId);
+      if (loadingId) {
+        removeLoadingBubble(loadingId);
+      }
 
       const data = await resp.json();
       if (resp.status === 429) {
@@ -691,41 +1066,55 @@ document.addEventListener('DOMContentLoaded', () => {
           updateQuotaDisplay(0);
           showQuotaModal();
         }
-        appendMessage('assistant', '⚠️ ' + (data.message || 'Free guest question limit reached.'));
-        recordSessionMessage('assistant', '⚠️ ' + (data.message || 'Free guest question limit reached.'));
+        const quotaErrMsg = '⚠️ ' + (data.message || 'Free guest question limit reached.');
+        recordSessionMessage(targetSessionId, 'assistant', quotaErrMsg);
+        if (currentSessionId === targetSessionId) {
+          appendMessage('assistant', quotaErrMsg);
+        }
         return;
       }
 
       if (!resp.ok) {
         updateQuotaDisplay(data.remaining !== undefined ? data.remaining : remainingQuestions);
         const errMsg = `⚠️ ${data.message || 'Error occurred while contacting assistant.'}`;
-        appendMessage('assistant', errMsg);
-        recordSessionMessage('assistant', errMsg);
+        recordSessionMessage(targetSessionId, 'assistant', errMsg);
+        if (currentSessionId === targetSessionId) {
+          appendMessage('assistant', errMsg);
+        }
         return;
       }
 
       // Success
       updateQuotaDisplay(data.remaining);
-      appendMessage('assistant', data.reply);
-      conversationHistory.push({ role: 'assistant', content: data.reply });
-      recordSessionMessage('assistant', data.reply);
+      recordSessionMessage(targetSessionId, 'assistant', data.reply, { role: 'assistant', content: data.reply });
+
+      // ONLY append to screen UI if user is STILL viewing targetSessionId!
+      if (currentSessionId === targetSessionId) {
+        appendMessage('assistant', data.reply);
+        conversationHistory.push({ role: 'assistant', content: data.reply });
+      }
 
       if (data.remaining === 0 && !isCustom) {
         setTimeout(showQuotaModal, 1500);
       }
     } catch (err) {
-      removeLoadingBubble(loadingId);
+      if (loadingId) removeLoadingBubble(loadingId);
       const connErrMsg = '⚠️ Connection error. Please check your network and try again.';
-      appendMessage('assistant', connErrMsg);
-      recordSessionMessage('assistant', connErrMsg);
+      recordSessionMessage(targetSessionId, 'assistant', connErrMsg);
+      if (currentSessionId === targetSessionId) {
+        appendMessage('assistant', connErrMsg);
+      }
     } finally {
+      if (activePendingSessionId === targetSessionId) {
+        activePendingSessionId = null;
+      }
       isGenerating = false;
       heroSendBtn.disabled = false;
       chatSendBtn.disabled = false;
     }
   }
 
-  function appendMessage(role, rawContent) {
+  function appendMessage(role, rawContent, autoScroll = true) {
     const item = document.createElement('div');
     item.className = `message-item ${role}`;
 
@@ -740,7 +1129,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     item.appendChild(bubble);
     messagesList.appendChild(item);
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    if (autoScroll) {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
 
     // Attach image click handlers
     bubble.querySelectorAll('.pandal-img-card').forEach(card => {
@@ -794,21 +1185,90 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
 
-      // Contextual 1-Tap Quick Follow-up Chips (0 tokens from LLM)
+      // Contextual 1-Tap Quick Follow-up & Travel Mode Chips (0 tokens from LLM)
       if (!rawContent.startsWith('⚠️')) {
         const chipsBar = document.createElement('div');
         chipsBar.className = 'followup-chips-bar';
         
-        const isBn = currentLang === 'bn' || /[\u0980-\u09FF]/.test(rawContent);
+        // Strict Language Control: Only use Bengali/Hindi if user explicitly chose it in the UI dropdown
+        const isBn = currentLang === 'bn';
+        const isHi = currentLang === 'hi';
+
+        // Check if message discusses routes, itineraries, pandal tours, or multi-stop visits
+        const isRoutePlan = /(route|itinerary|tour|parikrama|walking|metro|distance|stop|পরিক্রমা|রুট|হাঁটা|মেট্রো|मार्ग|दौरा|पैदल)/i.test(rawContent);
+
+        // Travel Mode Chips (displayed only for route / pandal parikrama replies)
+        if (isRoutePlan) {
+          // Extract mentioned pandals from numbered headings (in exact stop sequence) + dataset
+          const activePandalNames = [];
+          const headingRegex = /^#{2,4}\s*\d+[\.\)]\s*([^\n\r]+)/gm;
+          let hMatch;
+          while ((hMatch = headingRegex.exec(rawContent)) !== null) {
+            const cleanName = hMatch[1].replace(/[*_🏛️]/g, '').trim();
+            if (cleanName && !activePandalNames.some(n => n.toLowerCase() === cleanName.toLowerCase())) {
+              activePandalNames.push(cleanName);
+            }
+          }
+          if (activePandalNames.length === 0 && allKolkataPandals && allKolkataPandals.length > 0) {
+            allKolkataPandals.forEach(p => {
+              if (rawContent.toLowerCase().includes(p.name.toLowerCase()) && !activePandalNames.includes(p.name)) {
+                activePandalNames.push(p.name);
+              }
+            });
+          }
+          const pandalsContext = activePandalNames.length > 0 
+            ? activePandalNames.slice(0, 6).join(', ')
+            : 'the exact same pandals mentioned above';
+
+          const transportChips = isBn ? [
+            { text: '🚇+🚶 মেট্রো + হাঁটার পথ', query: `মেট্রো ও হাঁটার পথের সমন্বয়ে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য ভ্রমণ পরিকল্পনা দিন। জিপিএস বা অন্য মণ্ডপে পরিবর্তন করবেন না।` },
+            { text: '🚶 সম্পূর্ণ হাঁটার রুট', query: `যানজট এড়িয়ে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) মধ্যে হাঁটার সরাসরি পথ ও দূরত্ব জানান।` },
+            { text: '🛺 টোটো / অটো + হাঁটা', query: `টোটো (ই-রিকশা) ও অটো সংযোগ ব্যবহার করে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য সহজ রুট পরিকল্পনা দিন। অন্য মণ্ডপে পরিবর্তন করবেন না।` },
+            { text: '🚕 ট্যাক্সি / ক্যাব রুট', query: `শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য ট্যাক্সি/ক্যাব রুট, ট্র্যাফিক ও পার্কিং ড্রপ-অফ পয়েন্ট দিন।` },
+            { text: '🏍️ বাইক / টু-হুইলার', query: `শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য বাইকের শর্টকাট রুট ও বাইক পার্কিং নির্দেশিকা দিন।` }
+          ] : (isHi ? [
+            { text: '🚇+🚶 मेट्रो + पैदल मार्ग', query: `मेट्रो और पैदल मार्ग के साथ केवल इन्हीं पंडालों (${pandalsContext}) के लिए योजना बताएं। जीपीएस या अन्य पंडालों पर न जाएं।` },
+            { text: '🚶 केवल पैदल रूट', query: `ट्रैफिक से बचते हुए केवल इन्हीं पंडालों (${pandalsContext}) के बीच पैदल चलने का मार्ग बताएं।` },
+            { text: '🛺 टोटो / ऑटो + पैदल', query: `टोटो (ई-रिक्शा) और ऑटो कनेक्टिविटी के साथ केवल इन्हीं पंडालों (${pandalsContext}) का मार्ग बताएं।` },
+            { text: '🚕 टैक्सी / कैब रूट', query: `केवल इन्हीं पंडालों (${pandalsContext}) के लिए टैक्सी/कैब रूट और ड्रॉप-ऑफ पॉइंट बताएं।` },
+            { text: '🏍️ बाइक मार्ग', query: `केवल इन्हीं पंडालों (${pandalsContext}) के लिए बाइक से जाने का सुगम मार्ग और पार्किंग बताएं।` }
+          ] : [
+            { text: '🚇+🚶 Metro + Walk Route', query: `Plan the optimal Metro and walking route strictly between: ${pandalsContext}. Do not switch to user GPS location or other pandals.` },
+            { text: '🚶 Walking Only Route', query: `Plan a pure walking route strictly between: ${pandalsContext}. Do not switch to other pandals.` },
+            { text: '🛺 Toto / Auto + Walk', query: `Plan this route strictly for: ${pandalsContext} using local Toto (e-rickshaw), Auto-rickshaw connectors, and short walks. Do not switch pandals.` },
+            { text: '🚕 Taxi / Car Route', query: `Plan a Taxi / Cab / Car route strictly for: ${pandalsContext} with nearest drop-off points and road traffic. Do not switch pandals.` },
+            { text: '🏍️ Bike / Two-Wheeler', query: `Plan a Bike route strictly for: ${pandalsContext} with two-wheeler parking and bypass lanes. Do not switch pandals.` }
+          ]);
+
+          transportChips.forEach(item => {
+            const chipBtn = document.createElement('button');
+            chipBtn.className = 'followup-chip-btn transport-chip-btn';
+            chipBtn.type = 'button';
+            chipBtn.innerHTML = item.text;
+            chipBtn.title = `Switch itinerary mode: ${item.text}`;
+            chipBtn.addEventListener('click', () => {
+              const inputEl = heroView.style.display !== 'none' ? heroInput : chatInput;
+              inputEl.value = item.query;
+              sendMessage();
+            });
+            chipsBar.appendChild(chipBtn);
+          });
+        }
+
+        // Standard Contextual Chips (Food, Metro Timings, Traffic)
         const followUps = isBn ? [
           { text: '🍽️ আশেপাশের খাবার ও মিষ্টি', query: 'এই মণ্ডপগুলির কাছাকাছি বিখ্যাত ঐতিহ্যবাহী খাবার ও মিষ্টির দোকান কোনটি?' },
-          { text: '🚇 আজকের রাতের মেট্রো সময়সূচী', query: 'আজ রাতের পুজোর স্পেশাল মেট্রো ট্রেনের শেষ সময় কখন?' },
+          { text: '🚇 রাতের মেট্রো শেষ ট্রেন', query: 'আজ রাতের পুজোর স্পেশাল মেট্রো ট্রেনের শেষ সময় কখন?' },
           { text: '🚨 বর্তমান ট্র্যাফিক ও ভিড়', query: 'এই রুটের বর্তমান রাস্তা ও ট্র্যাফিক পরিস্থিতি কেমন?' }
+        ] : (isHi ? [
+          { text: '🍽️ नजदीकी प्रसिद्ध खान-पान', query: 'इन पंडालों के पास प्रसिद्ध भोजन और पारंपरिक मिठाइयों की दुकानें कौन सी हैं?' },
+          { text: '🚇 रात की विशेष मेट्रो समय', query: 'दुर्गा पूजा विशेष मेट्रो की आखिरी ट्रेन का समय क्या है?' },
+          { text: '🚨 लाइव ट्रैफिक व भीड़', query: 'इस रूट पर वर्तमान सड़क ट्रैफिक और भीड़ की स्थिति कैसी है?' }
         ] : [
           { text: '🍽️ Famous Food & Sweets Nearby', query: 'What are the best authentic food and sweet shops near these pandals?' },
-          { text: '🚇 Puja Special Metro Timings Tonight', query: 'What are the late-night Puja special Metro timings and last train schedules?' },
+          { text: '🚇 Late Night Metro Timings', query: 'What are the late-night Puja special Metro timings and last train schedules?' },
           { text: '🚨 Live Traffic & Crowds', query: 'What is the current road traffic and crowd status for this route?' }
-        ];
+        ]);
 
         followUps.forEach(item => {
           const chipBtn = document.createElement('button');
@@ -842,20 +1302,96 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(data => { allKolkataPandals = data; })
     .catch(err => console.warn('Could not load pandals index:', err));
 
+  // Helper to normalize Bengali-English pandal name variations for reliable matching
+  function normalizePandalKey(str) {
+    return (str || '')
+      .toLowerCase()
+      .replace(/\(.*?\)/g, ' ')
+      .replace(/\bdum\s+dum\b/g, 'dumdum')
+      .replace(/\bshobhabazar\b/g, 'sovabazar')
+      .replace(/\bbaghbazar\b/g, 'bagbazar')
+      .replace(/\bkumortuli\b/g, 'kumartuli')
+      .replace(/\bvyayam\b/g, 'byayam')
+      .replace(/\bsamiti\b/g, 'samity')
+      .replace(/\bsarbajanin\b|\bsarbojonin\b/g, 'sarbojanin')
+      .replace(/\bdurgotsab\b|\bdurgotsav\b/g, 'durgotsav')
+      .replace(/\bjubak\b|\byuvak\b/g, 'yubak')
+      .replace(/\bbrindo\b/g, 'brinda')
+      .replace(/\bpalli\b/g, 'pally')
+      .replace(/\bbhowanipore\b|\bbhawanipur\b|\bbhawanipore\b/g, 'bhowanipur')
+      .replace(/\bhindustan\b/g, 'hindusthan')
+      .replace(/\bkhidirpur\b|\bkhidderpore\b/g, 'kidderpore')
+      .replace(/\bsree\s+bhumi\b/g, 'sreebhumi')
+      .replace(/\bnoboday\b|\bnaboday\b/g, 'nabauday')
+      .replace(/\bnaba\s+uday\b/g, 'nabauday')
+      .replace(/[^a-z0-9]/g, '');
+  }
+
   // Detect coordinates or Google Maps links to render an interactive Leaflet Map
   function renderInteractiveMapIfPossible(bubble, text) {
     const coords = [];
     const seenNames = new Set();
     const lowerText = text.toLowerCase();
+    const normFullText = normalizePandalKey(text);
+
+    // Extract numbered stop headings (e.g., "### 1. Dum Dum Park Tarun Sangha") to guarantee exact route order
+    const headingLines = [];
+    const headingRegex = /(?:^|\n)\s*(?:#{1,4}\s*)?(?:🏛️\s*)?(\d+)[\.\)]\s*([^\n]+)/g;
+    let hMatch;
+    while ((hMatch = headingRegex.exec(text)) !== null) {
+      headingLines.push({
+        step: parseInt(hMatch[1], 10),
+        raw: hMatch[2].trim(),
+        norm: normalizePandalKey(hMatch[2]),
+        index: hMatch.index
+      });
+    }
 
     // 1. Search against all 222 Kolkata pandals from the dataset
     if (allKolkataPandals && allKolkataPandals.length > 0) {
-      allKolkataPandals.forEach(p => {
-        const pNameLower = p.name.toLowerCase();
-        const pos = lowerText.indexOf(pNameLower);
-        // Match pandal name in text
-        if (pos !== -1) {
-          if (!seenNames.has(p.name)) {
+      // First pass: match pandals directly against numbered headings in exact stop order (1 -> 2 -> 3)
+      if (headingLines.length > 0) {
+        headingLines.forEach((h, hIdx) => {
+          let bestPandal = null;
+          let bestLen = 0;
+          allKolkataPandals.forEach(p => {
+            const pNorm = normalizePandalKey(p.name);
+            if (pNorm.length >= 4 && (h.norm.includes(pNorm) || pNorm.includes(h.norm))) {
+              if (pNorm.length > bestLen) {
+                bestLen = pNorm.length;
+                bestPandal = p;
+              }
+            }
+          });
+          if (bestPandal && !seenNames.has(bestPandal.name)) {
+            seenNames.add(bestPandal.name);
+            coords.push({
+              lat: bestPandal.lat,
+              lon: bestPandal.lon,
+              name: bestPandal.name,
+              area: bestPandal.area || '',
+              pos: hIdx * 1000 // Strictly preserve 1 -> 2 -> 3 heading order
+            });
+          }
+        });
+      }
+
+      // Second pass: search full text only if there were no numbered headings or if some numbered headings didn't match
+      if (headingLines.length === 0 || coords.length < headingLines.length) {
+        allKolkataPandals.forEach(p => {
+          if (seenNames.has(p.name)) return;
+          const pNameLower = p.name.toLowerCase();
+          let pos = lowerText.indexOf(pNameLower);
+          if (pos === -1) {
+            const pNorm = normalizePandalKey(p.name);
+            const normPos = pNorm.length >= 5 ? normFullText.indexOf(pNorm) : -1;
+            if (normPos !== -1) {
+              pos = 50000 + normPos;
+            }
+          } else {
+            pos = 10000 + pos;
+          }
+          if (pos !== -1) {
             seenNames.add(p.name);
             coords.push({
               lat: p.lat,
@@ -865,9 +1401,10 @@ document.addEventListener('DOMContentLoaded', () => {
               pos: pos
             });
           }
-        }
-      });
-      // Sort coords in the exact chronological sequence mentioned in the itinerary
+        });
+      }
+
+      // Sort coords in the exact sequence mentioned in the itinerary
       coords.sort((a, b) => a.pos - b.pos);
     }
 
@@ -877,13 +1414,13 @@ document.addEventListener('DOMContentLoaded', () => {
     while ((match = gmapsRegex.exec(text)) !== null) {
       const lat = parseFloat(match[1]);
       const lon = parseFloat(match[2]);
-      if (!coords.some(c => Math.abs(c.lat - lat) < 0.003 && Math.abs(c.lon - lon) < 0.003)) {
+      if (!coords.some(c => Math.abs(c.lat - lat) < 0.002 && Math.abs(c.lon - lon) < 0.002)) {
         coords.push({
           lat: lat,
           lon: lon,
           name: 'Pandal Destination',
           area: '',
-          pos: match.index
+          pos: 90000 + match.index
         });
       }
     }
@@ -893,29 +1430,45 @@ document.addEventListener('DOMContentLoaded', () => {
     while ((match = coordRegex.exec(text)) !== null) {
       const lat = parseFloat(match[1]);
       const lon = parseFloat(match[2]);
-      if (!coords.some(c => Math.abs(c.lat - lat) < 0.003 && Math.abs(c.lon - lon) < 0.003)) {
+      if (!coords.some(c => Math.abs(c.lat - lat) < 0.002 && Math.abs(c.lon - lon) < 0.002)) {
         coords.push({
           lat: lat,
           lon: lon,
           name: 'Puja Location',
           area: '',
-          pos: match.index
+          pos: 95000 + match.index
         });
       }
     }
 
     if (coords.length === 0) return;
 
-    // Build multi-stop Google Maps URL connecting ALL pandals found in the search!
+    // Prevent identical coordinates from stacking markers directly on top of each other
+    for (let i = 0; i < coords.length; i++) {
+      for (let j = 0; j < i; j++) {
+        if (Math.abs(coords[i].lat - coords[j].lat) < 0.00015 && Math.abs(coords[i].lon - coords[j].lon) < 0.00015) {
+          const angle = (i * 2.4);
+          coords[i].lat = +(coords[i].lat + Math.cos(angle) * 0.00045).toFixed(6);
+          coords[i].lon = +(coords[i].lon + Math.sin(angle) * 0.00045).toFixed(6);
+        }
+      }
+    }
+
+    // Determine optimal Google Maps travelmode based on itinerary transport mode
+    const isDrivingMode = /🚕|🚗|🏍️|\b(taxi|cab|car route|driving|bike|two-wheeler|scooter)\b/i.test(text.slice(0, 350));
+    const travelMode = isDrivingMode ? 'driving' : 'walking';
+    const modeLabel = isDrivingMode ? 'driving' : 'walking';
+
+    // Build multi-stop Google Maps URL connecting ALL pandals in exact sequence!
     let gmapsUrl = "";
     if (coords.length === 1) {
-      gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${coords[0].lat},${coords[0].lon}&travelmode=walking`;
+      gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${coords[0].lat},${coords[0].lon}&travelmode=${travelMode}`;
     } else {
       const origin = `${coords[0].lat},${coords[0].lon}`;
       const destination = `${coords[coords.length - 1].lat},${coords[coords.length - 1].lon}`;
       const intermediateCoords = coords.slice(1, -1);
       const waypoints = intermediateCoords.slice(0, 9).map(c => `${c.lat},${c.lon}`).join('|');
-      gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ''}&travelmode=walking`;
+      gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ''}&travelmode=${travelMode}`;
     }
 
     // Synchronize ANY Google Maps route buttons rendered in the message bubble from markdown
@@ -925,7 +1478,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.href = gmapsUrl;
       if (coords.length > 1) {
         btn.innerHTML = `📍 Open Full Route in Google Maps (${coords.length} stops)`;
-        btn.title = `Full walking tour connecting all ${coords.length} pandals in Google Maps`;
+        btn.title = `Full ${modeLabel} tour connecting all ${coords.length} pandals in Google Maps`;
       }
     });
 
@@ -934,15 +1487,19 @@ document.addEventListener('DOMContentLoaded', () => {
     mapContainer.className = 'map-card-container';
     const mapId = 'map-' + Math.random().toString(36).substring(2, 9);
 
+    const stopSummary = coords.length > 1
+      ? `${coords.length} stops: ${coords.map((c, idx) => `${idx + 1}. ${c.name}`).join(' ➔ ')}`
+      : `1 pandal plotted: ${coords[0].name}`;
+
     mapContainer.innerHTML = `
-      <div class="map-card-header">
-        <span>🗺️ Interactive Puja Map Preview (${coords.length} pandals plotted)</span>
+      <div class="map-card-header" title="${stopSummary.replace(/"/g, '&quot;')}">
+        <span>🗺️ Interactive Puja Map Preview (${coords.length} ${coords.length === 1 ? 'pandal' : 'stops'} plotted)</span>
       </div>
       <div id="${mapId}" class="pandal-leaflet-map"></div>
       <div class="map-card-footer">
-        <span>Tap pins for pandal details</span>
+        <span>Tap numbered pins (1–${coords.length}) for pandal details</span>
         <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" class="route-map-btn" style="padding: 6px 14px; font-size: 0.82rem; margin: 0;">
-          📍 Open Full Route in Google Maps (${coords.length} stops)
+          📍 Open Full Route in Google Maps (${coords.length} ${coords.length === 1 ? 'stop' : 'stops'})
         </a>
       </div>
     `;
@@ -951,7 +1508,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setTimeout(() => {
       try {
-        const map = L.map(mapId, { scrollWheelZoom: false }).setView([coords[0].lat, coords[0].lon], coords.length > 1 ? 13 : 15);
+        const map = L.map(mapId, { scrollWheelZoom: false }).setView([coords[0].lat, coords[0].lon], coords.length > 1 ? 14 : 15);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '&copy; OpenStreetMap'
@@ -959,22 +1516,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const group = [];
         coords.forEach((c, idx) => {
-          const marker = L.marker([c.lat, c.lon]).addTo(map);
-          marker.bindPopup(`<strong>${idx + 1}. ${c.name}</strong>${c.area ? `<br><small>Area: ${c.area}</small>` : ''}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}" target="_blank" style="color: #2E7D5B; font-weight: bold; font-size: 11px;">Directions in Google Maps &rarr;</a>`);
+          const numberedIcon = L.divIcon({
+            className: 'pandal-numbered-pin',
+            html: `<div style="background:#C0392B;color:#FFF8F0;width:26px;height:26px;border-radius:50%;border:2px solid #FFF8F0;box-shadow:0 2px 6px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;font-family:sans-serif;">${idx + 1}</div>`,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+            popupAnchor: [0, -14]
+          });
+          const marker = L.marker([c.lat, c.lon], { icon: numberedIcon }).addTo(map);
+          marker.bindPopup(`<strong>${idx + 1}. ${c.name}</strong>${c.area ? `<br><small>Area: ${c.area}</small>` : ''}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lon}&travelmode=${travelMode}" target="_blank" rel="noopener noreferrer" style="color: #2E7D5B; font-weight: bold; font-size: 11px;">Directions to Stop #${idx + 1} &rarr;</a>`);
           if (idx === 0) marker.openPopup();
           group.push([c.lat, c.lon]);
         });
 
-        // If multiple pandals, draw a walking route line connecting them
+        // If multiple pandals, draw a route line connecting them in sequence
         if (coords.length > 1) {
           const linePoints = coords.map(c => [c.lat, c.lon]);
           L.polyline(linePoints, {
             color: '#C0392B',
             weight: 3,
-            opacity: 0.8,
+            opacity: 0.85,
             dashArray: '6, 8'
           }).addTo(map);
-          map.fitBounds(group, { padding: [30, 30] });
+          map.fitBounds(group, { padding: [36, 36], maxZoom: 16 });
         }
       } catch (err) {
         console.warn('Leaflet render error:', err);
@@ -1008,8 +1572,11 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderMarkdown(md) {
     let html = md;
 
-    // 1. Markdown Images: ![caption](url)
+    // 1. Markdown Images: ![caption](url) (Only verified dataset URLs allowed; block stock photo hallucinations)
     html = html.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (match, caption, url) => {
+      if (/unsplash\.com|pexels\.com|pixabay\.com|placeholder\.com/i.test(url)) {
+        return '';
+      }
       return `<div class="pandal-img-card"><img src="${url}" alt="${caption}" loading="lazy"><div class="pandal-img-caption">📷 ${caption || 'Pandal Photo'}</div></div>`;
     });
 
@@ -1061,10 +1628,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const val = content.replace(/^(?:⏱️\s*)?(?:<strong>)?(?:Best Time|Timing|সময়)(?:<\/strong>)?:\s*/i, '');
         return `<div class="pandal-pill-row"><span class="info-pill pill-time">⏱️ Timing</span><span class="pill-text">${val}</span></div>`;
       }
+      // Weather / আবহাওয়া / Attire / Umbrella
+      if (content.match(/^(?:🌦️\s*|⛅\s*|☔\s*)?(?:<strong>)?(?:Weather|Weather & Attire|Weather & Tips|আবহাওয়া|আবহাওয়া ও পোশাক|পোশাকের পরামর্শ)(?:<\/strong>)?:\s*(.*)/i)) {
+        const val = content.replace(/^(?:🌦️\s*|⛅\s*|☔\s*)?(?:<strong>)?(?:Weather|Weather & Attire|Weather & Tips|আবহাওয়া|আবহাওয়া ও পোশাক|পোশাকের পরামর্শ)(?:<\/strong>)?:\s*/i, '');
+        return `<div class="pandal-pill-row"><span class="info-pill pill-crowd" style="background: #EBF5FB; color: #2471A3; border-color: #AED6F1;">🌦️ Weather & Tips</span><span class="pill-text">${val}</span></div>`;
+      }
+      // Metro Service Window / মেট্রো সময়সূচী
+      if (content.match(/^(?:🚇\s*)?(?:<strong>)?(?:Metro Service Window|Metro Hours|Metro Timings|মেট্রো সময়সূচী|মেট্রো সার্ভিস)(?:<\/strong>)?:\s*(.*)/i)) {
+        const val = content.replace(/^(?:🚇\s*)?(?:<strong>)?(?:Metro Service Window|Metro Hours|Metro Timings|মেট্রো সময়সূচী|মেট্রো সার্ভিস)(?:<\/strong>)?:\s*/i, '');
+        return `<div class="pandal-pill-row"><span class="info-pill pill-metro">🚇 Metro Service</span><span class="pill-text">${val}</span></div>`;
+      }
       // Food / খাবার / Sweets
       if (content.match(/^(?:🍽️\s*)?(?:<strong>)?(?:Food|Food Stop|খাবার|মিষ্টি|Restaurant)(?:<\/strong>)?:\s*(.*)/i)) {
         const val = content.replace(/^(?:🍽️\s*)?(?:<strong>)?(?:Food|Food Stop|খাবার|মিষ্টি|Restaurant)(?:<\/strong>)?:\s*/i, '');
         return `<div class="pandal-pill-row"><span class="info-pill pill-food">🍽️ Food Stop</span><span class="pill-text">${val}</span></div>`;
+      }
+      // Facebook / Social Media / ফেসবুক
+      if (content.match(/^(?:📘\s*|🌐\s*)?(?:<strong>)?(?:Official Facebook Page|Facebook|Social Media|ফেসবুক|অফিসিয়াল ফেসবুক)(?:<\/strong>)?:\s*(.*)/i)) {
+        const val = content.replace(/^(?:📘\s*|🌐\s*)?(?:<strong>)?(?:Official Facebook Page|Facebook|Social Media|ফেসবুক|অফিসিয়াল ফেসবুক)(?:<\/strong>)?:\s*/i, '');
+        return `<div class="pandal-pill-row"><span class="info-pill" style="background: #E8F0FE; color: #1877F2; border-color: #C2DBFE;">📘 Facebook</span><span class="pill-text">${val}</span></div>`;
       }
       return content;
     }
@@ -1120,6 +1702,40 @@ document.addEventListener('DOMContentLoaded', () => {
     quotaModal.style.display = 'flex';
   }
 
+  function hideQuotaModal() {
+    if (quotaModal) quotaModal.style.display = 'none';
+  }
+
+  if (modalCloseBtn) {
+    modalCloseBtn.addEventListener('click', hideQuotaModal);
+  }
+
+  // Close modals when clicking the dimmed background backdrop
+  if (quotaModal) {
+    quotaModal.addEventListener('click', (e) => {
+      if (e.target === quotaModal) hideQuotaModal();
+    });
+  }
+
+  if (apiKeyModal) {
+    apiKeyModal.addEventListener('click', (e) => {
+      if (e.target === apiKeyModal) apiKeyModal.style.display = 'none';
+    });
+  }
+
+  if (imageModal) {
+    imageModal.addEventListener('click', (e) => {
+      if (e.target === imageModal || (imageModalClose && e.target === imageModalClose)) {
+        imageModal.style.display = 'none';
+      }
+    });
+  }
+  if (imageModalClose) {
+    imageModalClose.addEventListener('click', () => {
+      if (imageModal) imageModal.style.display = 'none';
+    });
+  }
+
   async function performReset() {
     try {
       const resp = await fetch('/api/reset-quota', { method: 'POST' });
@@ -1133,26 +1749,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  const modalResetBtn = document.getElementById('modal-reset-btn');
-  if (modalResetBtn) modalResetBtn.addEventListener('click', performReset);
-  quotaBadge.style.cursor = 'pointer';
-  quotaBadge.title = 'Click to reset questions for testing';
-  quotaBadge.addEventListener('click', performReset);
-
   // API Key Settings Modal
-  const apiKeyModal = document.getElementById('api-key-modal');
-  const openKeysBtn = document.getElementById('open-keys-btn');
-  const closeKeysBtn = document.getElementById('close-keys-btn');
-  const saveKeysBtn = document.getElementById('save-keys-btn');
-  const clearKeysBtn = document.getElementById('clear-keys-btn');
-  const modalAddKeyBtn = document.getElementById('modal-add-key-btn');
-
-  const inputGeminiKey = document.getElementById('user-gemini-key');
-  const inputGroqKey = document.getElementById('user-groq-key');
-  const inputOpenaiKey = document.getElementById('user-openai-key');
-  const inputClaudeKey = document.getElementById('user-claude-key');
-
   function openKeyModal() {
+    closeSidebar();
     if (inputGeminiKey) inputGeminiKey.value = userKeys.gemini || '';
     if (inputGroqKey) inputGroqKey.value = userKeys.groq || '';
     if (inputOpenaiKey) inputOpenaiKey.value = userKeys.openai || '';
@@ -1258,6 +1857,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyLanguage('en');
   }
   renderChatHistory();
+  renderRotatingSuggestions();
 
   // Start session
   updateModelSelectLabels();

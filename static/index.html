@@ -10,9 +10,15 @@
   <!-- Leaflet Map CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <meta name="theme-color" content="#FFFFFF">
+  <meta name="description" content="Kolkata Pujo Parikrama - AI-Powered Durga Puja Guide. Live pandal details, all-night Metro schedules, crowd updates, and optimal routes.">
+  <meta property="og:title" content="Kolkata Pujo Parikrama - AI Puja Guide">
+  <meta property="og:description" content="Ask about pandals, crowd updates, night Metro timings (till 4 AM), routes, and festive weather in Kolkata.">
+  <meta property="og:image" content="/static/favicon.png">
+  <meta property="og:type" content="website">
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=3.0">
 </head>
 <body>
   <!-- Header Bar -->
@@ -29,6 +35,10 @@
       </div>
     </div>
     <div class="nav-right">
+      <button id="dhak-audio-btn" class="dhak-audio-btn" title="Toggle subtle festive Dhak sound" aria-label="Toggle Festive Dhak Sound">
+        <span id="dhak-audio-icon" class="dhak-audio-icon">🔇</span>
+        <span id="dhak-audio-label" class="dhak-audio-label">Dhak</span>
+      </button>
       <button id="nav-new-chat-btn" class="nav-new-chat-btn" title="Start a fresh conversation">
         <span class="new-chat-icon">＋</span>
         <span class="new-chat-text" id="nav-new-chat-text">New Chat</span>
@@ -65,36 +75,45 @@
 
     <!-- Sidebar Settings Panel -->
     <div class="sidebar-settings-panel">
-      <div class="sidebar-setting-row">
-        <label for="model-select" id="assistant-label">🤖 Assistant:</label>
-        <select id="model-select" class="sidebar-select">
-          <option value="gemini" selected>Google Gemini (Free Guest)</option>
-          <option value="groq">Groq (Free Guest)</option>
-          <option value="openai">OpenAI (ChatGPT)</option>
-          <option value="anthropic">Anthropic (Claude)</option>
-        </select>
+      <div class="sidebar-setting-group">
+        <label for="model-select" id="assistant-label" class="sidebar-field-label">🤖 AI Assistant</label>
+        <div class="sidebar-select-wrapper">
+          <select id="model-select" class="sidebar-select-full">
+            <option value="gemini" selected>Google Gemini (Free Guest)</option>
+            <option value="groq">Groq (Free Guest)</option>
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+          </select>
+        </div>
       </div>
 
-      <div class="sidebar-setting-row">
-        <label for="lang-select" id="lang-label">🌐 Language / ভাষা:</label>
-        <select id="lang-select" class="sidebar-select">
-          <option value="en" selected>English</option>
-          <option value="bn">বাংলা (Bengali)</option>
-          <option value="hi">हिन्दी (Hindi)</option>
-        </select>
+      <div class="sidebar-setting-group">
+        <label for="lang-select" id="lang-label" class="sidebar-field-label">🌐 Language / ভাষা</label>
+        <div class="sidebar-select-wrapper">
+          <select id="lang-select" class="sidebar-select-full">
+            <option value="en" selected>English</option>
+            <option value="bn">বাংলা (Bengali)</option>
+            <option value="hi">हिन्दी (Hindi)</option>
+          </select>
+        </div>
       </div>
 
-      <div class="sidebar-setting-row">
-        <label id="sidebar-key-label">🔑 Personal Key:</label>
-        <button id="open-keys-btn" class="sidebar-action-btn key-pill-btn" title="Add your own API Key (Unlimited questions)">
-          <span>🔑</span>
-          <span id="key-pill-text">API Keys (Unlimited)</span>
+      <div class="sidebar-setting-group">
+        <label class="sidebar-field-label" id="sidebar-key-label">🔑 Personal API Key</label>
+        <button id="open-keys-btn" class="sidebar-key-btn-full" title="Add your own API Key (Unlimited questions)">
+          <span class="key-btn-left">
+            <span class="key-icon">🔐</span>
+            <span id="key-pill-text">Manage API Keys</span>
+          </span>
+          <span class="key-badge-tag">Unlimited</span>
         </button>
       </div>
 
-      <div id="quota-badge" class="quota-badge sidebar-quota-badge">
-        <span class="quota-icon">⚡</span>
-        <span id="quota-text">Checking questions...</span>
+      <div class="sidebar-quota-wrapper">
+        <div id="quota-badge" class="quota-badge sidebar-quota-badge">
+          <span class="quota-icon">⚡</span>
+          <span id="quota-text">Checking questions...</span>
+        </div>
       </div>
     </div>
   </aside>
@@ -130,7 +149,45 @@
   <main class="main-container">
     <section id="hero-view" class="hero-section">
       <div class="hero-brand">
-        <div class="hero-motif">🌸 শুভ শারদীয়া 🌸</div>
+        <div class="hero-motif">
+          <div class="hero-lotus-badge">
+            <svg class="hero-lotus-icon" viewBox="0 0 100 80" aria-label="Puja Lotus Motif">
+              <defs>
+                <linearGradient id="lotusCrimson" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#E74C3C"/>
+                  <stop offset="100%" stop-color="#B03A2E"/>
+                </linearGradient>
+                <linearGradient id="lotusGold" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#F59E0B"/>
+                  <stop offset="100%" stop-color="#D97706"/>
+                </linearGradient>
+              </defs>
+              <!-- Lotus Base / Padma Asana -->
+              <path d="M20 64 C35 74 65 74 80 64 C68 70 32 70 20 64 Z" fill="url(#lotusGold)"/>
+              <circle cx="50" cy="71" r="2.5" fill="url(#lotusGold)"/>
+              <!-- Outer Low Petals -->
+              <path d="M48 52 C28 54 12 60 10 68 C22 68 36 63 46 57" fill="#FADBD8" fill-opacity="0.6" stroke="url(#lotusCrimson)" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M52 52 C72 54 88 60 90 68 C78 68 64 63 54 57" fill="#FADBD8" fill-opacity="0.6" stroke="url(#lotusCrimson)" stroke-width="2.2" stroke-linecap="round"/>
+              <!-- Mid Petals -->
+              <path d="M48 42 C28 42 16 52 18 64 C28 64 40 56 48 50" fill="#F5B7B1" fill-opacity="0.5" stroke="url(#lotusCrimson)" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M52 42 C72 42 84 52 82 64 C72 64 60 56 52 50" fill="#F5B7B1" fill-opacity="0.5" stroke="url(#lotusCrimson)" stroke-width="2.2" stroke-linecap="round"/>
+              <!-- Inner Petals -->
+              <path d="M50 28 C34 34 28 48 34 62 C40 56 46 48 50 44" fill="#FADBD8" fill-opacity="0.7" stroke="url(#lotusCrimson)" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M50 28 C66 34 72 48 66 62 C60 56 54 48 50 44" fill="#FADBD8" fill-opacity="0.7" stroke="url(#lotusCrimson)" stroke-width="2.2" stroke-linecap="round"/>
+              <!-- Center Main Petal -->
+              <path d="M50 10 C40 26 38 42 50 62 C62 42 60 26 50 10 Z" fill="#F5B7B1" fill-opacity="0.85" stroke="url(#lotusCrimson)" stroke-width="2.4" stroke-linejoin="round"/>
+              <!-- Sacred Golden Bindu -->
+              <circle cx="50" cy="52" r="3.5" fill="url(#lotusGold)"/>
+              <circle cx="50" cy="52" r="1.5" fill="#FFFFFF"/>
+            </svg>
+          </div>
+          <div class="hero-festive-tag">
+            <span class="hero-flourish-line"></span>
+            <span id="hero-motif-text">শুভ শারদীয়া</span>
+            <span class="hero-flourish-line"></span>
+          </div>
+          <div id="hero-tithi-sub" class="hero-tithi-sub"></div>
+        </div>
         <h1 class="hero-title">Kolkata Pujo Parikrama</h1>
       </div>
 
@@ -151,38 +208,17 @@
         </div>
       </div>
 
-      <!-- One-Click Puja Tour Planner Presets -->
-      <div class="tour-presets-container">
-        <div class="presets-title">✨ Recommended Puja Tour Presets</div>
-        <div class="tour-presets-grid">
-          <button class="preset-card" data-prompt="Plan a 5-pandal Metro tour in South Kolkata starting from Kalighat Metro">
-            <div class="preset-icon">🚊</div>
-            <div class="preset-info">
-              <strong>South Metro Hopper</strong>
-              <span>Kalighat → Chetla → Suruchi Sangha</span>
-            </div>
+      <!-- Rotating Clickable Question Suggestions Below Search Bar -->
+      <div class="suggestions-container">
+        <div class="suggestions-header">
+          <span class="suggestions-pulse-dot"></span>
+          <span class="suggestions-label" id="suggestions-label">Popular Puja Inquiries</span>
+          <button id="refresh-suggestions-btn" class="refresh-suggestions-btn" title="Rotate questions" aria-label="Refresh suggestions">
+            🔄
           </button>
-          <button class="preset-card" data-prompt="Plan a traditional heritage walking Puja route in North Kolkata around Baghbazar and Sovabazar">
-            <div class="preset-icon">🏛️</div>
-            <div class="preset-info">
-              <strong>North Heritage Trail</strong>
-              <span>Baghbazar → Kumartuli → Sovabazar</span>
-            </div>
-          </button>
-          <button class="preset-card" data-prompt="Which pandals in Salt Lake and East Kolkata have low crowd and big themes right now?">
-            <div class="preset-icon">🌙</div>
-            <div class="preset-info">
-              <strong>Salt Lake & Theme Tour</strong>
-              <span>FD Block → BJ Block → Sreebhumi</span>
-            </div>
-          </button>
-          <button class="preset-card" id="preset-near-me">
-            <div class="preset-icon">📍</div>
-            <div class="preset-info">
-              <strong>Pandals Near Me</strong>
-              <span>Auto-detect GPS & nearest pandals</span>
-            </div>
-          </button>
+        </div>
+        <div id="rotating-suggestions" class="rotating-suggestions-grid">
+          <!-- Dynamically populated and cycled via app.js -->
         </div>
       </div>
     </section>
@@ -313,6 +349,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=2.2"></script>
+  <script src="/static/app.js?v=3.3"></script>
 </body>
 </html>

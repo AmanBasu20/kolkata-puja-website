@@ -32,7 +32,7 @@ class QuotaManager:
         self.unlimited = (limit <= 0) or (limit >= 9999)
         self.limit = 9999 if self.unlimited else max(1, limit)
         self.lock = threading.Lock()
-        self.db = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
+        self.db = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None, timeout=20.0)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
         self.db.execute(
