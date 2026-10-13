@@ -1679,6 +1679,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  document.querySelectorAll('.open-keys-trigger').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openKeyModal();
+    });
+  });
+
   // Toggle "How to get key?" guide accordions
   document.querySelectorAll('.key-guide-toggle').forEach(link => {
     link.addEventListener('click', (e) => {

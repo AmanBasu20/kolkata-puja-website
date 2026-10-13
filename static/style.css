@@ -2232,4 +2232,53 @@ body {
   }
 }
 
+/* Subtle Peak Traffic Disclaimer */
+.traffic-disclaimer {
+  font-size: 0.76rem;
+  color: #7A7265;
+  text-align: center;
+  margin: 6px auto 4px auto;
+  max-width: 720px;
+  line-height: 1.4;
+  padding: 0 12px;
+  opacity: 0.92;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.traffic-disclaimer .disclaimer-icon {
+  font-size: 0.85rem;
+  color: #D97706;
+  flex-shrink: 0;
+}
+
+.traffic-disclaimer .disclaimer-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: inherit;
+  font-family: inherit;
+  font-weight: 700;
+  color: var(--accent-red);
+  text-decoration: underline;
+  cursor: pointer;
+  display: inline;
+}
+
+.traffic-disclaimer .disclaimer-link:hover {
+  color: #962D22;
+}
+
+.hero-disclaimer {
+  margin-top: 14px;
+}
+
+.chat-disclaimer {
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
 

@@ -18,7 +18,7 @@
   <meta property="og:type" content="website">
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
-  <link rel="stylesheet" href="/static/style.css?v=3.6">
+  <link rel="stylesheet" href="/static/style.css?v=3.7">
 </head>
 <body>
   <!-- Header Bar -->
@@ -220,6 +220,12 @@
           <!-- Dynamically populated and cycled via app.js -->
         </div>
       </div>
+
+      <!-- Peak Traffic Resource Disclaimer -->
+      <div class="traffic-disclaimer hero-disclaimer">
+        <span class="disclaimer-icon">⚡</span>
+        <span>Notice: Free tier users may experience longer response times or temporary unavailability during peak festival hours due to high server demand. (Tip: <button type="button" class="disclaimer-link open-keys-trigger">Add your free API key</button> for instant, unlimited answers).</span>
+      </div>
     </section>
 
     <!-- Conversation Chat View -->
@@ -239,6 +245,10 @@
               <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
             </svg>
           </button>
+        </div>
+        <div class="traffic-disclaimer chat-disclaimer">
+          <span class="disclaimer-icon">⚡</span>
+          <span>Notice: Free tier users may experience longer response times or temporary unavailability during peak festival hours due to high server demand. (Tip: <button type="button" class="disclaimer-link open-keys-trigger">Add your free API key</button> for instant, unlimited answers).</span>
         </div>
       </div>
     </section>
@@ -348,6 +358,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=3.7"></script>
+  <script src="/static/app.js?v=3.8"></script>
 </body>
 </html>
