@@ -447,93 +447,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Subtle Traditional Festive Dhak & Kansor Sound Generator (Web Audio API - 0 KB network cost)
+  // Traditional Authentic Sharodiya Dhak Audio Player
   const dhakAudioBtn = document.getElementById('dhak-audio-btn');
   const dhakAudioIcon = document.getElementById('dhak-audio-icon');
   const dhakAudioLabel = document.getElementById('dhak-audio-label');
-  let dhakAudioCtx = null;
-  let dhakIntervalId = null;
+  let dhakHtmlAudio = null;
   let isDhakPlaying = false;
-  let dhakStep = 0;
-
-  function playDhakStroke(ctx, type, timeOffset = 0) {
-    const now = ctx.currentTime + timeOffset;
-    if (type === 'dha' || type === 'dhin') {
-      // Deep warm leather membrane resonance (Dhak bass + mid wooden shell)
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(type === 'dha' ? 240 : 310, now);
-
-      osc.type = 'triangle';
-      const startFreq = type === 'dha' ? 135 : 165;
-      const endFreq = type === 'dha' ? 58 : 74;
-      osc.frequency.setValueAtTime(startFreq, now);
-      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.14);
-
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(type === 'dha' ? 0.11 : 0.085, now + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.32);
-
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.34);
-    } else if (type === 'tak') {
-      // Crisp wooden rim / high stick tap (Kathi stroke)
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(420, now);
-      osc.frequency.exponentialRampToValueAtTime(190, now + 0.055);
-
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(0.045, now + 0.005);
-      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.075);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.08);
-    } else if (type === 'kansor') {
-      // Soft traditional bronze Kansor bell harmonic shimmer
-      [880, 1318.5].forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now);
-
-        gain.gain.setValueAtTime(0.0005, now);
-        gain.gain.linearRampToValueAtTime(idx === 0 ? 0.016 : 0.008, now + 0.008);
-        gain.gain.exponentialRampToValueAtTime(0.0004, now + 0.28);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.3);
-      });
-    }
-  }
-
-  // Traditional 8-step Sharodiya Dhak Badya Tala pattern
-  const DHAK_PATTERN = [
-    ['dha', 'kansor'], // Beat 1: Dha + Kansor
-    ['tak'],           // Beat 1.5: Tak
-    ['dhin'],          // Beat 2: Dhin
-    ['dhin', 'kansor'],// Beat 2.5: Dhin + Kansor
-    ['dha'],           // Beat 3: Dha
-    [],                // Beat 3.5: Breath
-    ['tak', 'kansor'], // Beat 4: Tak + Kansor
-    ['dhin']           // Beat 4.5: Dhin
-  ];
 
   function toggleDhakAudio() {
     if (isDhakPlaying) {
-      if (dhakIntervalId) {
-        clearInterval(dhakIntervalId);
-        dhakIntervalId = null;
+      if (dhakHtmlAudio) {
+        dhakHtmlAudio.pause();
       }
       isDhakPlaying = false;
       if (dhakAudioBtn) dhakAudioBtn.classList.remove('playing');
@@ -543,32 +467,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!dhakAudioCtx) {
-        dhakAudioCtx = new AudioCtx();
+      if (!dhakHtmlAudio) {
+        // Zero network impact on page load: loads only on explicit user click!
+        dhakHtmlAudio = new Audio('/static/dhak.mp3');
+        dhakHtmlAudio.loop = true;
+        dhakHtmlAudio.volume = 0.65; // Pleasant, gentle festive ambient volume
       }
-      if (dhakAudioCtx.state === 'suspended') {
-        dhakAudioCtx.resume();
-      }
 
-      isDhakPlaying = true;
-      dhakStep = 0;
-      if (dhakAudioBtn) dhakAudioBtn.classList.add('playing');
-      if (dhakAudioIcon) dhakAudioIcon.textContent = '🥁';
-      if (dhakAudioLabel) dhakAudioLabel.textContent = 'Dhak 🔊';
-
-      // Trigger first beat immediately
-      DHAK_PATTERN[0].forEach(stroke => playDhakStroke(dhakAudioCtx, stroke));
-      dhakStep = 1;
-
-      dhakIntervalId = setInterval(() => {
-        if (!isDhakPlaying || !dhakAudioCtx) return;
-        const strokes = DHAK_PATTERN[dhakStep % DHAK_PATTERN.length];
-        strokes.forEach(stroke => playDhakStroke(dhakAudioCtx, stroke));
-        dhakStep = (dhakStep + 1) % DHAK_PATTERN.length;
-      }, 240);
+      dhakHtmlAudio.play().then(() => {
+        isDhakPlaying = true;
+        if (dhakAudioBtn) dhakAudioBtn.classList.add('playing');
+        if (dhakAudioIcon) dhakAudioIcon.textContent = '🥁';
+        if (dhakAudioLabel) dhakAudioLabel.textContent = 'Dhak 🔊';
+      }).catch(err => {
+        console.warn('Audio play error (requires user interaction):', err);
+      });
     } catch (e) {
-      console.warn('Web Audio API unavailable:', e);
+      console.warn('Audio playback error:', e);
     }
   }
 
