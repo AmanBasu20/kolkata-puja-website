@@ -172,7 +172,16 @@ async def chat(req: ChatRequest, request: Request, response: Response):
         elif provider == "anthropic":
             reply = await call_anthropic(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
         else:
-            reply = await call_gemini(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
+            try:
+                reply = await call_gemini(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
+            except Exception as gemini_err:
+                # If Gemini is experiencing 503 high demand or quota issues, automatically cascade to Groq Llama
+                if not is_custom_key and ("503" in str(gemini_err) or "high demand" in str(gemini_err).lower() or "429" in str(gemini_err)):
+                    logger.warning("Gemini unavailable (%s). Automatically falling back to Groq Llama...", gemini_err)
+                    reply = await call_groq(user_message, req.history, mcp_client)
+                    provider = "groq (fallback)"
+                else:
+                    raise gemini_err
             
         return {
             "reply": reply,

@@ -10,6 +10,10 @@ import json
 import logging
 import asyncio
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from mcp_client import AsyncMcpClient
 
 logger = logging.getLogger("llm_providers")
@@ -43,7 +47,7 @@ CORE_TOOLS = {
 }
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 def get_gemini_keys_pool() -> list[str]:
@@ -111,21 +115,26 @@ Guidelines:
        - Chetla Agrani: South Kolkata / Chetla, nearest Metro is Kalighat or Jatin Das Park.
        - Tridhara Sammilani: South Kolkata / Deshapriya Park, nearest Metro is Kalighat.
    - If the user asks for pandals near them but NO GPS coordinates or suggestions are present in the query, DO NOT ask them to provide coordinates. Immediately showcase the top famous must-visit pandals in South and North Kolkata while noting they can tap the 📍 location icon or share their neighborhood (e.g., Kalighat, Gariahat, Salt Lake).
-3. Rich, User-Friendly Route & Pandal Formatting (STRICT NO-TABLE RULE):
-   - DO NOT EVER use Markdown tables (| Column 1 | Column 2 |) for pandal lists or itineraries. Tables are difficult to read and break mobile displays.
-   - Always format pandals as clean, distinct cards using ### headings and bullet points:
-     ### [Number]. [Pandal Name]
-     - 🚇 **Nearest Metro**: Station name & walking distance
-     - 🎨 **Theme & Heritage**: 1-2 descriptive sentences detailing the idol style, historical legacy, artistic concept, or atmosphere.
-     - 👥 **Crowd & Best Time**: Peak crowd hours, ideal visiting time, or photography tips.
-     - 🚶 **Next Stop Direction**: 1 practical sentence with walking directions to the next stop (omit for the final stop).
-   - Skip conversational pleasantries or filler at the start (do NOT say "Sure, here is your itinerary..."). Jump straight into the helpful facts.
-   - For walking tours and itineraries, provide an upfront Route Header with total estimated distance & walking duration:
+3. Rich, User-Friendly Formatting (Context-Aware & Adaptable):
+   - DO NOT EVER use Markdown tables (| Column 1 | Column 2 |) for pandal lists or itineraries. Tables break mobile displays.
+   - For Cultural, Thematic, or Historical Questions about a specific pandal (e.g., "What is the history of Sovabazar?", "Tell me about Tala Prattoy theme"):
+     * Answer naturally in engaging, culturally rich conversational paragraphs.
+     * DO NOT force rigid bulleted templates or unsolicited 🚇 Nearest Metro bullets unless the user explicitly asked how to get there or travel!
+   - For Routes, Itineraries, or Lists of Pandals:
+     * Format each pandal as a distinct card using ### headings:
+       ### [Number]. [Pandal Name]
+       - 🚇 **Nearest Metro**: Station name & approximate walking time (include whenever planning routes or itineraries).
+       - 🎨 **Theme & Heritage**: 1-2 descriptive sentences detailing the idol style, historical legacy, or artistic concept.
+       - 👥 **Crowd & Best Time**: Peak crowd hours, ideal visiting time, or photography tips.
+       - 🚶 **Next Stop Direction**: 1 practical sentence with transit/walking directions to the next stop (omit for the final stop).
+     * LARGE CIRCUITS (6 or more pandals): Keep descriptions tight and crisp (1 concise sentence per bullet) so the entire multi-stop circuit finishes cleanly without hitting length limits.
+   - Skip conversational pleasantries at the start (do NOT say "Sure, here is your itinerary..."). Jump straight into the helpful facts.
+   - For walking tours and itineraries, provide an upfront Route Header:
      🚶 **Walking Route: ~1.8 km | 25-30 mins walk**
      *Sequence: Stop 1 ➔ Stop 2 ➔ Stop 3*
    - Practical Transit & Weather Advisory for Itineraries:
-     * 🚇 **Metro Service Window**: Mention key operational hours relevant to the tour (e.g., "Kolkata Metro Blue Line runs round-the-clock festival night specials until 4:00 AM on Saptami, Ashtami, and Navami; Green Line runs until ~3:59 AM").
-     * 🌦️ **Weather & Attire Tip**: Provide sensible festive tips based on Kolkata's October climate or live conditions (e.g., "October evenings are warm and humid—wear breathable cotton/linen festive attire, carry drinking water, and keep a compact umbrella handy in case of sudden Sharodiya thundershowers").
+     * 🚇 **Metro Service Window**: Mention key operational hours (e.g., "Kolkata Metro Blue Line runs round-the-clock festival night specials until 4:00 AM on Saptami, Ashtami, and Navami; Green Line runs until ~3:59 AM").
+     * 🌦️ **Weather & Attire Tip**: Provide sensible festive tips based on Kolkata's October climate.
     - CUSTOM STARTING POINT RULE (Start from X first):
       * If the user says they want to visit or start from a specific pandal, area, or station first (e.g., Start from Dum Dum Park first, Start from Baghbazar, Ami Dum Dum theke shuru korte chai), you MUST set that exact location as **Stop #1** and plan the route outward to the closest neighboring pandals in geographic order.
     - Tailor Transit Modes When Requested:
@@ -265,7 +274,7 @@ async def call_gemini(
             body = {
                 "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
                 "contents": contents,
-                "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.4},
+                "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.4},
             }
             # Provide tools up to round 6. In final round, omit tools to guarantee synthesis of final answer
             if tools_payload and rounds < 6:
@@ -280,9 +289,9 @@ async def call_gemini(
                 if resp.status_code == 200:
                     break
                 
-                # Check for high demand or rate limit
+                # Check for high demand (503) or rate limit (429)
                 if resp.status_code in (503, 429):
-                    # Failover to next pool key if available
+                    # Failover to next pool key if available on 429
                     if resp.status_code == 429 and key_idx + 1 < len(candidate_keys):
                         key_idx += 1
                         active_key = candidate_keys[key_idx]
@@ -293,28 +302,33 @@ async def call_gemini(
                         current_url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={active_key}"
                         continue
 
+                    # On 503 (model high demand), 404, or exhausted 429, cascade to alternative Gemini models
+                    for alt_model in ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"]:
+                        if alt_model in current_url:
+                            continue
+                        logger.warning(
+                            "Gemini %d on %s. Cascading fallback to %s...",
+                            resp.status_code, current_url, alt_model
+                        )
+                        fallback_url = f"{GEMINI_BASE_URL}/{alt_model}:generateContent?key={active_key}"
+                        fallback_resp = await client.post(fallback_url, json=body)
+                        if fallback_resp.status_code == 200:
+                            resp = fallback_resp
+                            current_url = fallback_url
+                            selected_model = alt_model
+                            break
+
+                    if resp and resp.status_code == 200:
+                        break
+
                     if attempt < max_retries:
-                        wait_sec = (attempt + 1) * 1.5
+                        wait_sec = (attempt + 1) * 2.0
                         logger.warning(
                             "Gemini returned %d. Retrying in %.1fs (attempt %d/%d)...",
                             resp.status_code, wait_sec, attempt + 1, max_retries
                         )
                         await asyncio.sleep(wait_sec)
                         continue
-                    elif resp.status_code == 429:
-                        # Attempt fallback to alternative flash models
-                        for alt_model in ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]:
-                            if alt_model in current_url:
-                                continue
-                            logger.warning("Quota reached on %s. Attempting fallback to %s...", current_url, alt_model)
-                            fallback_url = f"{GEMINI_BASE_URL}/{alt_model}:generateContent?key={active_key}"
-                            fallback_resp = await client.post(fallback_url, json=body)
-                            if fallback_resp.status_code == 200:
-                                resp = fallback_resp
-                                current_url = fallback_url
-                                break
-                        if resp and resp.status_code == 200:
-                            break
 
             if resp is None or resp.status_code != 200:
                 err_msg = resp.text if resp else "No response"
@@ -449,7 +463,7 @@ async def call_groq(
                 "model": selected_model,
                 "messages": messages,
                 "temperature": 0.4,
-                "max_tokens": 1800,
+                "max_tokens": 3500,
             }
             if tools_payload and rounds < 1:
                 body["tools"] = tools_payload
@@ -614,7 +628,7 @@ async def call_groq(
                 "model": selected_model,
                 "messages": synth_messages,
                 "temperature": 0.3,
-                "max_tokens": 1500,
+                "max_tokens": 3500,
             }
 
             synth_resp = await client.post(GROQ_BASE_URL, json=synth_body, headers=headers)
@@ -690,7 +704,7 @@ async def call_openai(
                 "model": selected_model,
                 "messages": messages,
                 "temperature": 0.4,
-                "max_tokens": 2048,
+                "max_tokens": 4096,
             }
             if tools_payload and rounds < 4:
                 body["tools"] = tools_payload
@@ -820,7 +834,7 @@ async def call_anthropic(
                 "model": selected_model,
                 "system": SYSTEM_PROMPT,
                 "messages": messages,
-                "max_tokens": 2048,
+                "max_tokens": 4096,
             }
             if tools_payload and rounds < 4:
                 body["tools"] = tools_payload
