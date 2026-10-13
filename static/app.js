@@ -1070,21 +1070,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const actionsBar = document.createElement('div');
       actionsBar.className = 'message-actions-bar';
 
-      // WhatsApp Share button
+      // Copy full response to clipboard
       const cleanText = rawContent
         .replace(/!\[.*?\]\(.*?\)/g, '')
         .replace(/\[(.*?)\]\(.*?\)/g, '$1')
         .replace(/[*_#]/g, '')
         .trim();
-      const shareSnippet = cleanText.length > 500 ? cleanText.substring(0, 500) + '...' : cleanText;
-      const siteUrl = window.location.origin || 'https://kolkata-puja-mcp-server2.onrender.com';
-      const waText = encodeURIComponent(`🌸 *Kolkata Pujo Parikrama Guide* 🌸\n\n${shareSnippet}\n\n👉 Plan your Puja tour: ${siteUrl}`);
-      const waUrl = `https://api.whatsapp.com/send?text=${waText}`;
 
       actionsBar.innerHTML = `
-        <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="msg-action-btn whatsapp-btn" title="Share itinerary to WhatsApp">
-          <span>💬</span> <span>Share to WhatsApp</span>
-        </a>
         <button class="msg-action-btn copy-itinerary-btn" title="Copy full response to clipboard">
           <span>📋</span> <span>Copy Plan</span>
         </button>

@@ -1199,22 +1199,10 @@ body {
 }
 
 .msg-action-btn:hover {
-  border-color: #25D366;
-  color: #128C7E;
-  background: #F0FFF4;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: var(--surface-color);
   transform: translateY(-1px);
-}
-
-.msg-action-btn.whatsapp-btn {
-  color: #128C7E;
-  border-color: #A3E9B9;
-  background: #F4FDF7;
-}
-
-.msg-action-btn.whatsapp-btn:hover {
-  background: #25D366;
-  color: white;
-  border-color: #25D366;
 }
 
 .msg-action-btn.copied {
