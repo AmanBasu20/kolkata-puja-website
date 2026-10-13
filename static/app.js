@@ -417,8 +417,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const navBrandText = document.querySelector('.nav-brand-text');
     if (navBrandText) navBrandText.textContent = t.title;
 
-    if (heroInput) heroInput.placeholder = `${dailyGreeting.greetPrefix}${t.placeholder}`;
-    if (chatInput) chatInput.placeholder = `${dailyGreeting.greetPrefix}${t.chatPlaceholder}`;
+    if (heroInput) heroInput.placeholder = t.placeholder;
+    if (chatInput) chatInput.placeholder = t.chatPlaceholder;
 
     const suggestionsLabel = document.getElementById('suggestions-label');
     if (suggestionsLabel) suggestionsLabel.textContent = t.suggestionsLabel;
@@ -701,8 +701,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Handle Textarea auto-resize
   function autoResize(textarea) {
+    if (!textarea) return;
     textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+    const newHeight = Math.min(textarea.scrollHeight, 120);
+    textarea.style.height = newHeight + 'px';
+    textarea.style.overflowY = textarea.scrollHeight > 120 ? 'auto' : 'hidden';
   }
 
   [heroInput, chatInput].forEach(el => {
@@ -757,8 +760,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const pool = SUGGESTION_POOLS[currentLang] || SUGGESTION_POOLS.en;
     rotatingSuggestionsEl.innerHTML = '';
 
-    // Pick 4 suggestions starting from currentSuggestionIndex
-    for (let i = 0; i < 4; i++) {
+    // Choose at maximum two suggested queries side-by-side
+    const count = Math.min(2, pool.length);
+    for (let i = 0; i < count; i++) {
       const item = pool[(currentSuggestionIndex + i) % pool.length];
       const card = document.createElement('button');
       card.className = 'suggestion-card';

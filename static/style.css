@@ -817,12 +817,22 @@ body {
   background: transparent;
   outline: none;
   font-family: var(--font-family);
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   color: var(--text-main);
   resize: none;
-  padding: 8px 0;
+  padding: 6px 8px 6px 0;
   line-height: 1.4;
+  height: 28px;
   max-height: 120px;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.search-box textarea::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .send-btn {
@@ -1277,9 +1287,19 @@ body {
   font-size: 1rem;
   color: var(--text-main);
   resize: none;
-  padding: 8px 0;
+  padding: 6px 8px 6px 0;
   line-height: 1.4;
+  height: 28px;
   max-height: 120px;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.chat-input-wrapper textarea::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Modals */
@@ -1544,12 +1564,15 @@ body {
 }
 
 .rotating-suggestions-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  width: 100%;
 }
 
 .suggestion-card {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2001,20 +2024,37 @@ body {
   }
 
   .rotating-suggestions-grid {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 10px !important;
     width: 100% !important;
   }
 
   .suggestion-card {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
     display: flex !important;
     align-items: center !important;
-    gap: 12px !important;
-    padding: 11px 14px !important;
+    gap: 8px !important;
+    padding: 10px 10px !important;
     border-radius: 12px !important;
-    width: 100% !important;
     box-sizing: border-box !important;
+  }
+
+  .suggestion-info strong {
+    font-size: 0.82rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: block !important;
+  }
+
+  .suggestion-info span {
+    font-size: 0.72rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: block !important;
   }
 
   .suggestion-icon {
