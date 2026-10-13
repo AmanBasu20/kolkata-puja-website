@@ -280,55 +280,58 @@ async def call_gemini(
             if tools_payload and rounds < 2:
                 body["tools"] = tools_payload
 
-            # Defensive retry loop with key pool rotation, backoff, and model fallback
-            max_retries = 2
+            # Comprehensive key rotation across all keys in pool on 429 rate-limit
             resp = None
-            current_url = url
-            for attempt in range(max_retries + 1):
-                resp = await client.post(current_url, json=body)
+            tried_keys = 0
+            total_candidate_keys = len(candidate_keys)
+            
+            while tried_keys < total_candidate_keys:
+                active_key = candidate_keys[key_idx]
+                current_url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={active_key}"
+                try:
+                    resp = await client.post(current_url, json=body)
+                except Exception as net_err:
+                    logger.warning("Network error calling Gemini: %s. Retrying next key...", net_err)
+                    key_idx = (key_idx + 1) % total_candidate_keys
+                    tried_keys += 1
+                    continue
+
                 if resp.status_code == 200:
                     break
-                
-                # Check for high demand (503) or rate limit (429)
-                if resp.status_code in (503, 429):
-                    # Failover to next pool key if available on 429
-                    if resp.status_code == 429 and key_idx + 1 < len(candidate_keys):
-                        key_idx += 1
-                        active_key = candidate_keys[key_idx]
-                        logger.warning(
-                            "Gemini key rate limited (429). Rotating to key %d/%d from pool...",
-                            key_idx + 1, len(candidate_keys)
-                        )
-                        current_url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={active_key}"
-                        continue
 
-                    # On 503 (model high demand), 404, or exhausted 429, cascade to alternative Gemini models
+                if resp.status_code in (429, 401, 403):
+                    logger.warning(
+                        "Gemini key %d/%d returned status %d. Rotating to next key in pool...",
+                        key_idx + 1, total_candidate_keys, resp.status_code
+                    )
+                    key_idx = (key_idx + 1) % total_candidate_keys
+                    tried_keys += 1
+                    continue
+
+                if resp.status_code in (503, 500, 404):
+                    # Model high demand / unavailable: cascade to fallback models on the active key
                     for alt_model in ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"]:
                         if alt_model in current_url:
                             continue
-                        logger.warning(
-                            "Gemini %d on %s. Cascading fallback to %s...",
-                            resp.status_code, current_url, alt_model
-                        )
                         fallback_url = f"{GEMINI_BASE_URL}/{alt_model}:generateContent?key={active_key}"
-                        fallback_resp = await client.post(fallback_url, json=body)
-                        if fallback_resp.status_code == 200:
-                            resp = fallback_resp
-                            current_url = fallback_url
-                            selected_model = alt_model
-                            break
-
+                        try:
+                            fallback_resp = await client.post(fallback_url, json=body)
+                            if fallback_resp.status_code == 200:
+                                resp = fallback_resp
+                                current_url = fallback_url
+                                selected_model = alt_model
+                                break
+                        except Exception:
+                            pass
                     if resp and resp.status_code == 200:
                         break
+                    
+                    key_idx = (key_idx + 1) % total_candidate_keys
+                    tried_keys += 1
+                    continue
 
-                    if attempt < max_retries:
-                        wait_sec = (attempt + 1) * 2.0
-                        logger.warning(
-                            "Gemini returned %d. Retrying in %.1fs (attempt %d/%d)...",
-                            resp.status_code, wait_sec, attempt + 1, max_retries
-                        )
-                        await asyncio.sleep(wait_sec)
-                        continue
+                # Other HTTP status error
+                break
 
             if resp is None or resp.status_code != 200:
                 err_msg = resp.text if resp else "No response"
@@ -338,6 +341,7 @@ async def call_gemini(
                 except Exception:
                     pass
                 raise RuntimeError(f"Gemini API error ({resp.status_code if resp else 'N/A'}): {err_msg}")
+
 
             data = resp.json()
             candidates = data.get("candidates", [])
@@ -391,15 +395,22 @@ async def call_gemini(
                 "contents": synth_contents,
                 "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.3},
             }
-            synth_resp = await client.post(url, json=synth_body)
-            if synth_resp.status_code == 200:
-                s_data = synth_resp.json()
-                s_cands = s_data.get("candidates", [])
-                if s_cands:
-                    s_parts = s_cands[0].get("content", {}).get("parts", [])
-                    s_text = "".join([p.get("text", "") for p in s_parts if "text" in p and not p.get("thought", False)]).strip()
-                    if s_text:
-                        return s_text
+            for synth_key in [active_key] + [k for k in candidate_keys if k != active_key]:
+                synth_url = f"{GEMINI_BASE_URL}/{selected_model}:generateContent?key={synth_key}"
+                try:
+                    synth_resp = await client.post(synth_url, json=synth_body)
+                    if synth_resp.status_code == 200:
+                        s_data = synth_resp.json()
+                        s_cands = s_data.get("candidates", [])
+                        if s_cands:
+                            s_parts = s_cands[0].get("content", {}).get("parts", [])
+                            s_text = "".join([p.get("text", "") for p in s_parts if "text" in p and not p.get("thought", False)]).strip()
+                            if s_text:
+                                return s_text
+                    elif synth_resp.status_code in (429, 401, 403):
+                        continue
+                except Exception:
+                    continue
         except Exception as e:
             logger.warning("Forced synthesis step failed: %s", e)
 

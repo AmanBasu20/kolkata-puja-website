@@ -7,12 +7,14 @@ and MCP-grounded responses using Gemini & Groq.
 import os
 import uuid
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,6 +39,12 @@ logger = logging.getLogger("web_main")
 
 quota = QuotaManager()
 
+# Concurrency Semaphore: limit active LLM tool generations to 5 at a time per server
+# This prevents burst 429 rate limit errors from LLM providers during sudden traffic spikes
+CHAT_CONCURRENCY_LIMIT = int(os.environ.get("CONCURRENCY_LIMIT", "5"))
+chat_semaphore = asyncio.Semaphore(CHAT_CONCURRENCY_LIMIT)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Warm up MCP tool definitions in background
@@ -51,8 +59,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Kolkata Pujo Parikrama", lifespan=lifespan)
 
+# Allow Cross-Origin Resource Sharing (CORS) across load-balanced backends
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Mount static folder
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
 os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -163,25 +181,39 @@ async def chat(req: ChatRequest, request: Request, response: Response):
         # Custom key: unlimited
         remaining = 9999
 
-    # Call AI provider with live MCP tools
+    # Call AI provider with live MCP tools inside concurrency semaphore
     try:
-        if provider == "groq":
-            reply = await call_groq(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
-        elif provider == "openai":
-            reply = await call_openai(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
-        elif provider == "anthropic":
-            reply = await call_anthropic(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
-        else:
-            try:
-                reply = await call_gemini(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
-            except Exception as gemini_err:
-                # If Gemini is experiencing 503 high demand or quota issues, automatically cascade to Groq Llama
-                if not is_custom_key and ("503" in str(gemini_err) or "high demand" in str(gemini_err).lower() or "429" in str(gemini_err)):
-                    logger.warning("Gemini unavailable (%s). Automatically falling back to Groq Llama...", gemini_err)
-                    reply = await call_groq(user_message, req.history, mcp_client)
-                    provider = "groq (fallback)"
-                else:
-                    raise gemini_err
+        async with chat_semaphore:
+            if provider == "groq":
+                reply = await call_groq(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
+            elif provider == "openai":
+                reply = await call_openai(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
+            elif provider == "anthropic":
+                reply = await call_anthropic(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
+            else:
+                try:
+                    reply = await call_gemini(user_message, req.history, mcp_client, api_key=custom_key if is_custom_key else None)
+                except Exception as gemini_err:
+                    # If Gemini is experiencing 503 high demand or quota issues, automatically cascade to Groq Llama
+                    if not is_custom_key and ("503" in str(gemini_err) or "high demand" in str(gemini_err).lower() or "429" in str(gemini_err)):
+                        logger.warning("Gemini unavailable (%s). Automatically falling back to Groq Llama...", gemini_err)
+                        try:
+                            reply = await call_groq(user_message, req.history, mcp_client)
+                            provider = "groq (fallback)"
+                        except Exception as groq_err:
+                            logger.error("Groq fallback also encountered error: %s", groq_err)
+                            reply = (
+                                "🌸 **Peak Durga Puja Traffic Alert**:\n\n"
+                                "Our public AI servers are currently handling a surge of simultaneous parikrama inquiries! "
+                                "Your free question quota has **not** been deducted.\n\n"
+                                "✨ **What you can do**:\n"
+                                "1. Please wait **10–15 seconds** and tap **Send** again.\n"
+                                "2. Or click **🔑 Key Settings** in the top navigation to add your free Gemini or Groq API key for instant, unlimited priority access."
+                            )
+                            provider = "service (traffic-notice)"
+                            remaining = quota.refund(client_key)
+                    else:
+                        raise gemini_err
             
         return {
             "reply": reply,

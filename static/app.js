@@ -52,6 +52,36 @@ document.addEventListener('DOMContentLoaded', () => {
   let chatSessions = [];
   let currentSessionId = null;
 
+  // Multi-Backend Pool Configuration (Sticky Session + Automatic Failover)
+  const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const BACKEND_POOLS = isLocalHost
+    ? [
+        'http://localhost:8000',
+        'http://localhost:8001',
+        'http://localhost:8002'
+      ]
+    : [
+        'https://kolkata-puja-website.onrender.com',
+        'https://kolkata-puja-backend-2.onrender.com',
+        'https://kolkata-puja-backend-3.onrender.com'
+      ];
+
+  function getBackendCandidates(sessionId) {
+    if (!BACKEND_POOLS || BACKEND_POOLS.length === 0) return [''];
+    let hash = 0;
+    const str = String(sessionId || 'default');
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    const primaryIdx = Math.abs(hash) % BACKEND_POOLS.length;
+    const candidates = [];
+    for (let i = 0; i < BACKEND_POOLS.length; i++) {
+      candidates.push(BACKEND_POOLS[(primaryIdx + i) % BACKEND_POOLS.length]);
+    }
+    return candidates;
+  }
+
   function loadSessions() {
     try {
       const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
@@ -506,20 +536,24 @@ document.addEventListener('DOMContentLoaded', () => {
       const resp = await fetch('/api/session');
       if (resp.ok) {
         const data = await resp.json();
-        guestRemainingQuestions = data.remaining;
+        const storedUsed = parseInt(localStorage.getItem('pujo_guest_used') || '0', 10);
+        const serverRemaining = data.remaining !== undefined ? data.remaining : 5;
+        // Strict limit: lowest remaining between server and local storage
+        guestRemainingQuestions = Math.min(serverRemaining, Math.max(0, 5 - storedUsed));
         const currentProvider = modelSelect.value;
         if (hasCustomKeyForProvider(currentProvider)) {
           remainingQuestions = 9999;
           updateQuotaDisplay(9999);
         } else {
-          remainingQuestions = data.remaining;
-          updateQuotaDisplay(data.remaining, data.limit);
+          remainingQuestions = guestRemainingQuestions;
+          updateQuotaDisplay(guestRemainingQuestions, data.limit || 5);
         }
       }
     } catch (e) {
       console.warn('Session init error:', e);
     }
   }
+
 
   // User API Keys (Saved locally in browser localStorage)
   const userKeys = {
@@ -861,10 +895,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Only block if guest quota is exhausted AND user has no active custom key
-    if (remainingQuestions <= 0 && !isCustom) {
+    const storedGuestCount = parseInt(localStorage.getItem('pujo_guest_used') || '0', 10);
+    if (!isCustom && (remainingQuestions <= 0 || storedGuestCount >= 5)) {
+      guestRemainingQuestions = 0;
+      updateQuotaDisplay(0);
       showQuotaModal();
       return;
     }
+
 
     // Switch from Hero view to Chat view if on first question
     if (heroView.style.display !== 'none') {
@@ -963,22 +1001,68 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const customKey = userKeys[provider] || null;
 
-      const resp = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: queryMessage,
-          provider: provider,
-          history: sessionHistoryToSend,
-          custom_api_key: customKey
-        })
+      const candidates = getBackendCandidates(targetSessionId);
+      let resp = null;
+      let data = null;
+      let lastErr = null;
+
+      const payload = JSON.stringify({
+        message: queryMessage,
+        provider: provider,
+        history: sessionHistoryToSend,
+        custom_api_key: customKey
       });
+
+      for (const base of candidates) {
+        try {
+          const endpoint = base ? `${base}/api/chat` : '/api/chat';
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 95000);
+
+          const attemptResp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (attemptResp.status === 429) {
+            const errData = await attemptResp.json().catch(() => ({}));
+            if (errData && errData.error === 'guest_limit_reached') {
+              resp = attemptResp;
+              data = errData;
+              break;
+            } else {
+              console.warn(`Backend ${endpoint} returned 429 (temporary rate limit). Retrying next candidate...`);
+              lastErr = new Error(errData?.message || 'Server rate limit');
+              continue;
+            }
+          }
+
+          if (attemptResp.status >= 500) {
+            console.warn(`Backend ${endpoint} returned HTTP ${attemptResp.status}. Retrying candidate...`);
+            lastErr = new Error(`HTTP ${attemptResp.status}`);
+            continue;
+          }
+
+          resp = attemptResp;
+          data = await attemptResp.json();
+          break;
+        } catch (fetchErr) {
+          console.warn(`Fetch candidate error for ${base}:`, fetchErr);
+          lastErr = fetchErr;
+        }
+      }
 
       if (loadingId) {
         removeLoadingBubble(loadingId);
       }
 
-      const data = await resp.json();
+      if (!resp) {
+        throw (lastErr || new Error('All backends failed to respond'));
+      }
+
       if (resp.status === 429) {
         if (!isCustom) {
           guestRemainingQuestions = 0;
@@ -1003,8 +1087,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Success
-      updateQuotaDisplay(data.remaining);
+      // Success - track guest quota strictly in localStorage
+      if (!isCustom) {
+        const currentCount = parseInt(localStorage.getItem('pujo_guest_used') || '0', 10) + 1;
+        localStorage.setItem('pujo_guest_used', currentCount.toString());
+        const serverRemaining = data.remaining !== undefined ? data.remaining : 5;
+        guestRemainingQuestions = Math.min(serverRemaining, Math.max(0, 5 - currentCount));
+        updateQuotaDisplay(guestRemainingQuestions);
+      } else {
+        updateQuotaDisplay(data.remaining);
+      }
+
       recordSessionMessage(targetSessionId, 'assistant', data.reply, { role: 'assistant', content: data.reply });
 
       // ONLY append to screen UI if user is STILL viewing targetSessionId!
@@ -1013,7 +1106,7 @@ document.addEventListener('DOMContentLoaded', () => {
         conversationHistory.push({ role: 'assistant', content: data.reply });
       }
 
-      if (data.remaining === 0 && !isCustom) {
+      if (guestRemainingQuestions === 0 && !isCustom) {
         setTimeout(showQuotaModal, 1500);
       }
     } catch (err) {
@@ -1650,9 +1743,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function performReset() {
     try {
+      localStorage.removeItem('pujo_guest_used');
       const resp = await fetch('/api/reset-quota', { method: 'POST' });
       if (resp.ok) {
         const data = await resp.json();
+        guestRemainingQuestions = data.remaining;
         updateQuotaDisplay(data.remaining, data.limit);
         quotaModal.style.display = 'none';
       }
