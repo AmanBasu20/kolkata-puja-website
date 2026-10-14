@@ -492,9 +492,9 @@ async def call_groq(
                 "model": selected_model,
                 "messages": messages,
                 "temperature": 0.4,
-                "max_tokens": 3500,
+                "max_tokens": 1800,
             }
-            if tools_payload and rounds < 1:
+            if tools_payload and rounds < max_rounds:
                 body["tools"] = tools_payload
 
             resp = None
@@ -516,6 +516,8 @@ async def call_groq(
                     continue
 
                 if resp.status_code == 200:
+                    # Advance key index for subsequent rounds to distribute TPM across pool
+                    key_idx = (key_idx + 1) % total_candidate_keys
                     break
 
                 if resp.status_code in (429, 401, 403):
@@ -530,7 +532,7 @@ async def call_groq(
                         continue
 
                     # If keys exhausted or single key, cascade to alternative Groq models
-                    for alt_model in ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]:
+                    for alt_model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
                         if alt_model == selected_model:
                             continue
                         logger.warning("Groq limit hit on %s. Cascading to %s...", selected_model, alt_model)
@@ -546,6 +548,7 @@ async def call_groq(
                         except Exception:
                             pass
                     if resp and resp.status_code == 200:
+                        key_idx = (key_idx + 1) % total_candidate_keys
                         break
 
                     key_idx = (key_idx + 1) % total_candidate_keys
@@ -683,11 +686,26 @@ async def call_groq(
                 "model": selected_model,
                 "messages": synth_messages,
                 "temperature": 0.3,
-                "max_tokens": 3500,
+                "max_tokens": 1800,
             }
 
-            synth_resp = await client.post(GROQ_BASE_URL, json=synth_body, headers=headers)
-            if synth_resp.status_code == 200:
+            synth_resp = None
+            for _ in range(total_candidate_keys):
+                s_key = candidate_keys[key_idx]
+                s_headers = {
+                    "Authorization": f"Bearer {s_key}",
+                    "Content-Type": "application/json",
+                }
+                try:
+                    synth_resp = await client.post(GROQ_BASE_URL, json=synth_body, headers=s_headers)
+                    if synth_resp.status_code == 200:
+                        break
+                    logger.warning("Groq synthesis call returned status %s: %s. Trying next key...", synth_resp.status_code, synth_resp.text[:120])
+                except Exception as s_err:
+                    logger.warning("Groq synthesis network error: %s", s_err)
+                key_idx = (key_idx + 1) % total_candidate_keys
+
+            if synth_resp and synth_resp.status_code == 200:
                 s_choices = synth_resp.json().get("choices", [])
                 if s_choices:
                     s_txt = s_choices[0].get("message", {}).get("content", "") or ""
@@ -697,8 +715,6 @@ async def call_groq(
                     cleaned = cleaned.strip()
                     if cleaned:
                         return cleaned
-            else:
-                logger.warning("Groq synthesis call returned status %s: %s", synth_resp.status_code, synth_resp.text[:200])
         except Exception as e:
             logger.warning("Groq forced synthesis step failed: %s", e)
 
