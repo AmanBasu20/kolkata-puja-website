@@ -878,6 +878,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let provider = modelSelect.value;
     let isCustom = hasCustomKeyForProvider(provider);
 
+    // Safely notify Google Analytics that a question was asked
+    try {
+      if (typeof window.gtag === 'function') {
+        window.gtag('event', 'ask_question', {
+          event_category: 'chat',
+          event_label: provider || 'general'
+        });
+      }
+    } catch (e) {}
+
     // If current provider has no custom key, but user saved a custom key for another provider, auto-switch to it!
     if (!isCustom) {
       const altProvider = ['gemini', 'groq', 'openai', 'anthropic'].find(p => hasCustomKeyForProvider(p));
