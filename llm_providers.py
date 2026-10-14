@@ -47,7 +47,7 @@ CORE_TOOLS = {
 }
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 def get_gemini_keys_pool() -> list[str]:
@@ -277,8 +277,10 @@ async def call_gemini(
         contents.append({"role": role, "parts": [{"text": turn.get("content", "")}]})
     contents.append({"role": "user", "parts": [{"text": message}]})
 
+    is_simple_greeting = len(message.strip()) <= 15 and bool(re.match(r"^(hi|hello|hey|namaste|nomoshkar|shubho\s*sharodiya|test|good\s*(morning|evening|afternoon))[\s!.]*$", message.strip(), re.IGNORECASE))
+
     tools_payload = []
-    if function_declarations:
+    if function_declarations and not is_simple_greeting:
         tools_payload = [{"functionDeclarations": function_declarations}]
 
     # 3. Multi-turn execution loop with key pool failover (capped at 4 rounds for fast responses)
@@ -328,13 +330,13 @@ async def call_gemini(
                     continue
 
                 if resp.status_code in (503, 500, 404):
-                    # Model high demand / unavailable: cascade to fallback models on the active key
-                    for alt_model in ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"]:
+                    # Model high demand / unavailable: immediately try fast fallback model
+                    for alt_model in ["gemini-flash-lite-latest", "gemini-flash-latest"]:
                         if alt_model in current_url:
                             continue
                         fallback_url = f"{GEMINI_BASE_URL}/{alt_model}:generateContent?key={active_key}"
                         try:
-                            fallback_resp = await client.post(fallback_url, json=body)
+                            fallback_resp = await client.post(fallback_url, json=body, timeout=8.0)
                             if fallback_resp.status_code == 200:
                                 resp = fallback_resp
                                 current_url = fallback_url
@@ -345,9 +347,8 @@ async def call_gemini(
                     if resp and resp.status_code == 200:
                         break
                     
-                    key_idx = (key_idx + 1) % total_candidate_keys
-                    tried_keys += 1
-                    continue
+                    # If Google Gemini is overloaded (503/500), immediately abort key loop and raise so main.py cascades instantly to Groq Llama (which answers in 2s)!
+                    raise RuntimeError(f"Gemini {selected_model} is overloaded (HTTP {resp.status_code}). Fast fallback to Groq Llama.")
 
                 # Other HTTP status error
                 break
