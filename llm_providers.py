@@ -74,6 +74,25 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+def get_groq_keys_pool() -> list[str]:
+    """Retrieves all configured Groq keys from GROQ_API_KEYS or GROQ_API_KEY (supports comma/newline separated list)."""
+    raw = os.environ.get("GROQ_API_KEYS", "") or os.environ.get("GROQ_API_KEY", "") or GROQ_API_KEY
+    if not raw:
+        return []
+    return [k.strip() for k in re.split(r"[,;\n\r]+", raw) if k.strip()]
+
+_groq_key_rr_index = 0
+
+def get_next_pool_groq_key() -> str:
+    """Round-robin retrieves next available Groq key from pool."""
+    global _groq_key_rr_index
+    keys = get_groq_keys_pool()
+    if not keys:
+        return ""
+    key = keys[_groq_key_rr_index % len(keys)]
+    _groq_key_rr_index = (_groq_key_rr_index + 1) % len(keys)
+    return key
+
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = "https://api.openai.com/v1/chat/completions"
@@ -425,17 +444,16 @@ async def call_groq(
     model: str | None = None,
 ) -> str:
     if api_key:
-        key = api_key.strip()
+        candidate_keys = [api_key.strip()]
     else:
-        key = (GROQ_API_KEY or os.environ.get("GROQ_API_KEY", "")).strip()
-    if not key:
-        raise ValueError("Groq API key is missing. Please provide your Groq API key in Key Settings or configure GROQ_API_KEY.")
+        keys_pool = get_groq_keys_pool()
+        if not keys_pool:
+            raise ValueError("Groq API key is missing. Please provide your Groq API key in Key Settings or configure GROQ_API_KEY / GROQ_API_KEYS.")
+        start_key = get_next_pool_groq_key()
+        candidate_keys = [start_key] + [k for k in keys_pool if k != start_key]
     
     selected_model = model or os.environ.get("GROQ_MODEL") or GROQ_MODEL
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
+    key_idx = 0
 
     # 1. Fetch MCP tools & format as OpenAI/Groq tools (filter to CORE_TOOLS to avoid huge token prompts on Groq)
     mcp_tools = await mcp_client.get_tools()
@@ -464,7 +482,7 @@ async def call_groq(
         })
     messages.append({"role": "user", "content": message})
 
-    # 3. Multi-turn execution loop
+    # 3. Multi-turn execution loop with key pool rotation
     max_rounds = 3
     rounds = 0
     tool_summaries = []
@@ -479,42 +497,68 @@ async def call_groq(
             if tools_payload and rounds < 1:
                 body["tools"] = tools_payload
 
-            max_retries = 3
             resp = None
-            for attempt in range(max_retries + 1):
-                resp = await client.post(GROQ_BASE_URL, json=body, headers=headers)
+            tried_keys = 0
+            total_candidate_keys = len(candidate_keys)
+
+            while tried_keys < total_candidate_keys:
+                active_key = candidate_keys[key_idx]
+                headers = {
+                    "Authorization": f"Bearer {active_key}",
+                    "Content-Type": "application/json",
+                }
+                try:
+                    resp = await client.post(GROQ_BASE_URL, json=body, headers=headers)
+                except Exception as net_err:
+                    logger.warning("Network error calling Groq: %s. Retrying next key...", net_err)
+                    key_idx = (key_idx + 1) % total_candidate_keys
+                    tried_keys += 1
+                    continue
+
                 if resp.status_code == 200:
                     break
-                if resp.status_code in (429, 503):
-                    err_text = resp.text
-                    wait_sec = (attempt + 1) * 2.0
-                    match_s = re.search(r"try again in (\d+(?:\.\d+)?)s", err_text)
-                    match_ms = re.search(r"try again in (\d+(?:\.\d+)?)ms", err_text)
-                    if match_ms:
-                        wait_sec = (float(match_ms.group(1)) / 1000.0) + 0.5
-                    elif match_s:
-                        wait_sec = float(match_s.group(1)) + 0.5
 
-                    # If TPM/OTPM/TPD limit hit and wait is long or retries exhausted, cascade immediately to alternative model
-                    if "tokens per minute" in err_text.lower() or "tpm" in err_text.lower() or "tokens per day" in err_text.lower() or "tpd" in err_text.lower() or "otpm" in err_text.lower() or attempt == max_retries:
-                        for alt_model in ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]:
-                            if alt_model == selected_model:
-                                continue
-                            logger.warning("Groq limit hit on %s. Cascading to %s...", selected_model, alt_model)
-                            fallback_body = dict(body)
-                            fallback_body["model"] = alt_model
+                if resp.status_code in (429, 401, 403):
+                    logger.warning(
+                        "Groq key %d/%d returned status %d. Rotating to next key in pool...",
+                        key_idx + 1, total_candidate_keys, resp.status_code
+                    )
+                    # If multiple candidate keys exist, rotate immediately
+                    if total_candidate_keys > 1 and tried_keys + 1 < total_candidate_keys:
+                        key_idx = (key_idx + 1) % total_candidate_keys
+                        tried_keys += 1
+                        continue
+
+                    # If keys exhausted or single key, cascade to alternative Groq models
+                    for alt_model in ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]:
+                        if alt_model == selected_model:
+                            continue
+                        logger.warning("Groq limit hit on %s. Cascading to %s...", selected_model, alt_model)
+                        fallback_body = dict(body)
+                        fallback_body["model"] = alt_model
+                        try:
                             fallback_resp = await client.post(GROQ_BASE_URL, json=fallback_body, headers=headers)
                             if fallback_resp.status_code == 200:
                                 resp = fallback_resp
                                 selected_model = alt_model
                                 body["model"] = alt_model
                                 break
-                        if resp and resp.status_code == 200:
-                            break
+                        except Exception:
+                            pass
+                    if resp and resp.status_code == 200:
+                        break
 
-                    if attempt < max_retries:
-                        logger.warning("Groq returned %d. Sleeping %.2fs...", resp.status_code, wait_sec)
-                        await asyncio.sleep(min(wait_sec, 20.0))
+                    key_idx = (key_idx + 1) % total_candidate_keys
+                    tried_keys += 1
+                    continue
+
+                if resp.status_code in (503, 500, 502):
+                    key_idx = (key_idx + 1) % total_candidate_keys
+                    tried_keys += 1
+                    continue
+
+                # Other HTTP status error
+                break
 
             if resp is None or resp.status_code != 200:
                 err_msg = resp.text if resp else "No response"
