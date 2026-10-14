@@ -376,7 +376,13 @@ async def call_gemini(
             if not function_calls:
                 # Return final text
                 text_parts = [p.get("text", "") for p in parts if "text" in p and not p.get("thought", False)]
-                return "".join(text_parts).strip()
+                final_res = "".join(text_parts).strip()
+                if final_res:
+                    return final_res
+                # Fallback if text was inside thought or general parts
+                final_res = "".join([p.get("text", "") for p in parts if "text" in p]).strip()
+                if final_res:
+                    return final_res
 
             # Execute tool calls concurrently with asyncio.gather to minimize latency
             rounds += 1

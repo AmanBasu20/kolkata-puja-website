@@ -55,11 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Multi-Backend Pool Configuration (Sticky Session + Automatic Failover)
   const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const BACKEND_POOLS = isLocalHost
-    ? [
-        'http://localhost:8000',
-        'http://localhost:8001',
-        'http://localhost:8002'
-      ]
+    ? ['']
     : [
         'https://kolkata-puja-website.onrender.com',
         'https://kolkata-puja-backend-2.onrender.com',
@@ -1209,51 +1205,77 @@ document.addEventListener('DOMContentLoaded', () => {
         const isBn = currentLang === 'bn';
         const isHi = currentLang === 'hi';
 
+        // Extract mentioned pandals from numbered headings (in exact stop sequence) + dataset
+        const activePandalNames = [];
+        const headingRegex = /^#{2,4}\s*\d+[\.\)]\s*([^\n\r]+)/gm;
+        let hMatch;
+        while ((hMatch = headingRegex.exec(rawContent)) !== null) {
+          const cleanName = hMatch[1].replace(/[*_🏛️]/g, '').trim();
+          if (cleanName && !activePandalNames.some(n => n.toLowerCase() === cleanName.toLowerCase())) {
+            activePandalNames.push(cleanName);
+          }
+        }
+        if (activePandalNames.length === 0 && allKolkataPandals && allKolkataPandals.length > 0) {
+          allKolkataPandals.forEach(p => {
+            if (rawContent.toLowerCase().includes(p.name.toLowerCase()) && !activePandalNames.includes(p.name)) {
+              activePandalNames.push(p.name);
+            }
+          });
+        }
+        const hasSpecificPandals = activePandalNames.length > 0;
+        const pandalsContext = hasSpecificPandals 
+          ? activePandalNames.slice(0, 6).join(', ')
+          : '';
+
         // Check if message discusses routes, itineraries, pandal tours, or multi-stop visits
         const isRoutePlan = /(route|itinerary|tour|parikrama|walking|metro|distance|stop|পরিক্রমা|রুট|হাঁটা|মেট্রো|मार्ग|दौरा|पैदल)/i.test(rawContent);
 
         // Travel Mode Chips (displayed only for route / pandal parikrama replies)
         if (isRoutePlan) {
-          // Extract mentioned pandals from numbered headings (in exact stop sequence) + dataset
-          const activePandalNames = [];
-          const headingRegex = /^#{2,4}\s*\d+[\.\)]\s*([^\n\r]+)/gm;
-          let hMatch;
-          while ((hMatch = headingRegex.exec(rawContent)) !== null) {
-            const cleanName = hMatch[1].replace(/[*_🏛️]/g, '').trim();
-            if (cleanName && !activePandalNames.some(n => n.toLowerCase() === cleanName.toLowerCase())) {
-              activePandalNames.push(cleanName);
-            }
-          }
-          if (activePandalNames.length === 0 && allKolkataPandals && allKolkataPandals.length > 0) {
-            allKolkataPandals.forEach(p => {
-              if (rawContent.toLowerCase().includes(p.name.toLowerCase()) && !activePandalNames.includes(p.name)) {
-                activePandalNames.push(p.name);
-              }
-            });
-          }
-          const pandalsContext = activePandalNames.length > 0 
-            ? activePandalNames.slice(0, 6).join(', ')
-            : 'the exact same pandals mentioned above';
 
-          const transportChips = isBn ? [
-            { text: '🚇+🚶 মেট্রো + হাঁটার পথ', query: `মেট্রো ও হাঁটার পথের সমন্বয়ে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য ভ্রমণ পরিকল্পনা দিন। জিপিএস বা অন্য মণ্ডপে পরিবর্তন করবেন না।` },
-            { text: '🚶 সম্পূর্ণ হাঁটার রুট', query: `যানজট এড়িয়ে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) মধ্যে হাঁটার সরাসরি পথ ও দূরত্ব জানান।` },
-            { text: '🛺 টোটো / অটো + হাঁটা', query: `টোটো (ই-রিকশা) ও অটো সংযোগ ব্যবহার করে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য সহজ রুট পরিকল্পনা দিন। অন্য মণ্ডপে পরিবর্তন করবেন না।` },
-            { text: '🚕 ট্যাক্সি / ক্যাব রুট', query: `শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য ট্যাক্সি/ক্যাব রুট, ট্র্যাফিক ও পার্কিং ড্রপ-অফ পয়েন্ট দিন।` },
-            { text: '🏍️ বাইক / টু-হুইলার', query: `শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য বাইকের শর্টকাট রুট ও বাইক পার্কিং নির্দেশিকা দিন।` }
-          ] : (isHi ? [
-            { text: '🚇+🚶 मेट्रो + पैदल मार्ग', query: `मेट्रो और पैदल मार्ग के साथ केवल इन्हीं पंडालों (${pandalsContext}) के लिए योजना बताएं। जीपीएस या अन्य पंडालों पर न जाएं।` },
-            { text: '🚶 केवल पैदल रूट', query: `ट्रैफिक से बचते हुए केवल इन्हीं पंडालों (${pandalsContext}) के बीच पैदल चलने का मार्ग बताएं।` },
-            { text: '🛺 टोटो / ऑटो + पैदल', query: `टोटो (ई-रिक्शा) और ऑटो कनेक्टिविटी के साथ केवल इन्हीं पंडालों (${pandalsContext}) का मार्ग बताएं।` },
-            { text: '🚕 टैक्सी / कैब रूट', query: `केवल इन्हीं पंडालों (${pandalsContext}) के लिए टैक्सी/कैब रूट और ड्रॉप-ऑफ पॉइंट बताएं।` },
-            { text: '🏍️ बाइक मार्ग', query: `केवल इन्हीं पंडालों (${pandalsContext}) के लिए बाइक से जाने का सुगम मार्ग और पार्किंग बताएं।` }
-          ] : [
-            { text: '🚇+🚶 Metro + Walk Route', query: `Plan the optimal Metro and walking route strictly between: ${pandalsContext}. Do not switch to user GPS location or other pandals.` },
-            { text: '🚶 Walking Only Route', query: `Plan a pure walking route strictly between: ${pandalsContext}. Do not switch to other pandals.` },
-            { text: '🛺 Toto / Auto + Walk', query: `Plan this route strictly for: ${pandalsContext} using local Toto (e-rickshaw), Auto-rickshaw connectors, and short walks. Do not switch pandals.` },
-            { text: '🚕 Taxi / Car Route', query: `Plan a Taxi / Cab / Car route strictly for: ${pandalsContext} with nearest drop-off points and road traffic. Do not switch pandals.` },
-            { text: '🏍️ Bike / Two-Wheeler', query: `Plan a Bike route strictly for: ${pandalsContext} with two-wheeler parking and bypass lanes. Do not switch pandals.` }
-          ]);
+          const transportChips = isBn ? (
+            hasSpecificPandals ? [
+              { text: '🚇+🚶 মেট্রো + হাঁটার পথ', query: `মেট্রো ও হাঁটার পথের সমন্বয়ে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য ভ্রমণ পরিকল্পনা দিন। জিপিএস বা অন্য মণ্ডপে পরিবর্তন করবেন না।` },
+              { text: '🚶 সম্পূর্ণ হাঁটার রুট', query: `যানজট এড়িয়ে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) মধ্যে হাঁটার সরাসরি পথ ও দূরত্ব জানান।` },
+              { text: '🛺 টোটো / অটো + হাঁটা', query: `টোটো (ই-রিকশা) ও অটো সংযোগ ব্যবহার করে শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য সহজ রুট পরিকল্পনা দিন। অন্য মণ্ডপে পরিবর্তন করবেন না।` },
+              { text: '🚕 ট্যাক্সি / ক্যাব রুট', query: `শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য ট্যাক্সি/ক্যাব রুট, ট্র্যাফিক ও পার্কিং ড্রপ-অফ পয়েন্ট দিন।` },
+              { text: '🏍️ বাইক / টু-হুইলার', query: `শুধুমাত্র এই মণ্ডপগুলির (${pandalsContext}) জন্য বাইকের শর্টকাট রুট ও বাইক পার্কিং নির্দেশিকা দিন।` }
+            ] : [
+              { text: '🚇+🚶 মেট্রো + হাঁটার পথ', query: 'মেট্রো ও হাঁটার পথের সমন্বয়ে কলকাতার জনপ্রিয় কয়েকটি মণ্ডপের ভ্রমণ পরিকল্পনা দিন।' },
+              { text: '🚶 সম্পূর্ণ হাঁটার রুট', query: 'কলকাতার বিখ্যাত কয়েকটি মণ্ডপ সহজে হেঁটে ঘুরে দেখার সুন্দর রুট দিন।' },
+              { text: '🛺 টোটো / অটো + হাঁটা', query: 'টোটো ও অটোর সুবিধা সহ কলকাতার কয়েকটি জনপ্রিয় মণ্ডপের সহজ রুট পরিকল্পনা দিন।' },
+              { text: '🚕 ট্যাক্সি / ক্যাব রুট', query: 'গাড়ি বা ট্যাক্সিতে যাওয়ার উপযোগী কয়েকটি বিখ্যাত মণ্ডপের রুট ও ট্র্যাফিক আপডেট দিন।' },
+              { text: '🏍️ বাইক / টু-হুইলার', query: 'বাইকে সহজে ঘুরে দেখার মতো কয়েকটি জনপ্রিয় মণ্ডপের রুট ও পার্কিং নির্দেশিকা দিন।' }
+            ]
+          ) : (isHi ? (
+            hasSpecificPandals ? [
+              { text: '🚇+🚶 मेट्रो + पैदल मार्ग', query: `मेट्रो और पैदल मार्ग के साथ केवल इन्हीं पंडालों (${pandalsContext}) के लिए योजना बताएं। जीपीएस या अन्य पंडालों पर न जाएं।` },
+              { text: '🚶 केवल पैदल रूट', query: `ट्रैफिक से बचते हुए केवल इन्हीं पंडालों (${pandalsContext}) के बीच पैदल चलने का मार्ग बताएं।` },
+              { text: '🛺 टोटो / ऑटो + पैदल', query: `टोटो (ई-रिक्शा) और ऑटो कनेक्टिविटी के साथ केवल इन्हीं पंडालों (${pandalsContext}) का मार्ग बताएं।` },
+              { text: '🚕 टैक्सी / कैब रूट', query: `केवल इन्हीं पंडालों (${pandalsContext}) के लिए टैक्सी/कैब रूट और ड्रॉप-ऑफ पॉइंट बताएं।` },
+              { text: '🏍️ बाइक मार्ग', query: `केवल इन्हीं पंडालों (${pandalsContext}) के लिए बाइक से जाने का सुगम मार्ग और पार्किंग बताएं।` }
+            ] : [
+              { text: '🚇+🚶 मेट्रो + पैदल मार्ग', query: 'कोलकाता के प्रसिद्ध पंडालों के लिए मेट्रो और पैदल मार्ग का सर्वश्रेष्ठ प्लान बताएं।' },
+              { text: '🚶 केवल पैदल रूट', query: 'कोलकाता में पैदल घूमने के लिए प्रसिद्ध पंडालों का सुंदर रूट बताएं।' },
+              { text: '🛺 टोटो / ऑटो + पैदल', query: 'टोटो और ऑटो की सुविधा के साथ प्रसिद्ध पंडालों का यात्रा मार्ग बताएं।' },
+              { text: '🚕 टैक्सी / कैब रूट', query: 'गाड़ी या कैब से जाने के लिए प्रमुख पंडालों का रूट और ड्रॉप-ऑफ पॉइंट बताएं।' },
+              { text: '🏍️ बाइक मार्ग', query: 'बाइक से जाने के लिए सुगम पंडाल रूट और पार्किंग की जानकारी दें।' }
+            ]
+          ) : (
+            hasSpecificPandals ? [
+              { text: '🚇+🚶 Metro + Walk Route', query: `Plan the optimal Metro and walking route strictly between: ${pandalsContext}. Do not switch to user GPS location or other pandals.` },
+              { text: '🚶 Walking Only Route', query: `Plan a pure walking route strictly between: ${pandalsContext}. Do not switch to other pandals.` },
+              { text: '🛺 Toto / Auto + Walk', query: `Plan this route strictly for: ${pandalsContext} using local Toto (e-rickshaw), Auto-rickshaw connectors, and short walks. Do not switch pandals.` },
+              { text: '🚕 Taxi / Car Route', query: `Plan a Taxi / Cab / Car route strictly for: ${pandalsContext} with nearest drop-off points and road traffic. Do not switch pandals.` },
+              { text: '🏍️ Bike / Two-Wheeler', query: `Plan a Bike route strictly for: ${pandalsContext} with two-wheeler parking and bypass lanes. Do not switch pandals.` }
+            ] : [
+              { text: '🚇+🚶 Metro + Walk Route', query: 'Recommend a popular Metro and walking route connecting famous Durga Puja pandals in Kolkata.' },
+              { text: '🚶 Walking Only Route', query: 'Recommend a walking-friendly route covering popular Durga Puja pandals in Kolkata.' },
+              { text: '🛺 Toto / Auto + Walk', query: 'Recommend an easy Durga Puja route using local Toto and Auto-rickshaws in Kolkata.' },
+              { text: '🚕 Taxi / Car Route', query: 'Recommend a car and taxi-friendly Durga Puja route with drop-off points in Kolkata.' },
+              { text: '🏍️ Bike / Two-Wheeler', query: 'Recommend a bike-friendly Durga Puja route with two-wheeler parking in Kolkata.' }
+            ]
+          ));
 
           transportChips.forEach(item => {
             const chipBtn = document.createElement('button');
@@ -1272,17 +1294,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Standard Contextual Chips (Food, Metro Timings, Traffic)
         const followUps = isBn ? [
-          { text: '🍽️ আশেপাশের খাবার ও মিষ্টি', query: 'এই মণ্ডপগুলির কাছাকাছি বিখ্যাত ঐতিহ্যবাহী খাবার ও মিষ্টির দোকান কোনটি?' },
+          { text: '🍽️ আশেপাশের খাবার ও মিষ্টি', query: hasSpecificPandals ? `এই মণ্ডপগুলির (${pandalsContext}) কাছাকাছি বিখ্যাত ঐতিহ্যবাহী খাবার ও মিষ্টির দোকান কোনটি?` : 'কলকাতার বিখ্যাত পুজো মণ্ডপগুলির আশেপাশে সেরা খাবার ও মিষ্টির দোকান কোনটি?' },
           { text: '🚇 রাতের মেট্রো শেষ ট্রেন', query: 'আজ রাতের পুজোর স্পেশাল মেট্রো ট্রেনের শেষ সময় কখন?' },
-          { text: '🚨 বর্তমান ট্র্যাফিক ও ভিড়', query: 'এই রুটের বর্তমান রাস্তা ও ট্র্যাফিক পরিস্থিতি কেমন?' }
+          { text: '🚨 বর্তমান ট্র্যাফিক ও ভিড়', query: hasSpecificPandals ? `এই মণ্ডপগুলির (${pandalsContext}) বর্তমান রাস্তা ও ট্র্যাফিক পরিস্থিতি কেমন?` : 'কলকাতার প্রধান পুজো রুটে বর্তমান রাস্তা ও ট্র্যাফিক পরিস্থিতি কেমন?' }
         ] : (isHi ? [
-          { text: '🍽️ नजदीकी प्रसिद्ध खान-पान', query: 'इन पंडालों के पास प्रसिद्ध भोजन और पारंपरिक मिठाइयों की दुकानें कौन सी हैं?' },
+          { text: '🍽️ नजदीकी प्रसिद्ध खान-पान', query: hasSpecificPandals ? `इन पंडालों (${pandalsContext}) के पास प्रसिद्ध भोजन और पारंपरिक मिठाइयों की दुकानें कौन सी हैं?` : 'कोलकाता के प्रमुख पंडालों के पास प्रसिद्ध भोजन और मिठाइयों की दुकानें कौन सी हैं?' },
           { text: '🚇 रात की विशेष मेट्रो समय', query: 'दुर्गा पूजा विशेष मेट्रो की आखिरी ट्रेन का समय क्या है?' },
-          { text: '🚨 लाइव ट्रैफिक व भीड़', query: 'इस रूट पर वर्तमान सड़क ट्रैफिक और भीड़ की स्थिति कैसी है?' }
+          { text: '🚨 लाइव ट्रैफिक व भीड़', query: hasSpecificPandals ? `इस रूट पर वर्तमान सड़क ट्रैफिक और भीड़ की स्थिति कैसी है?` : 'कोलकाता के प्रमुख पूजा रूटों पर ट्रैफिक और भीड़ की स्थिति कैसी है?' }
         ] : [
-          { text: '🍽️ Famous Food & Sweets Nearby', query: 'What are the best authentic food and sweet shops near these pandals?' },
+          { text: '🍽️ Famous Food & Sweets Nearby', query: hasSpecificPandals ? `What are the best authentic food and sweet shops near ${pandalsContext}?` : 'What are the best authentic food and sweet shops near popular Durga Puja pandals in Kolkata?' },
           { text: '🚇 Late Night Metro Timings', query: 'What are the late-night Puja special Metro timings and last train schedules?' },
-          { text: '🚨 Live Traffic & Crowds', query: 'What is the current road traffic and crowd status for this route?' }
+          { text: '🚨 Live Traffic & Crowds', query: hasSpecificPandals ? `What is the current road traffic and crowd status for ${pandalsContext}?` : 'What is the current road traffic and crowd status across major Kolkata Puja routes?' }
         ]);
 
         followUps.forEach(item => {
